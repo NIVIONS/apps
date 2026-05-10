@@ -5,8 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Track & Travel</title>
     
-    <!-- Tailwind CSS -->
+    <!-- Tailwind CSS (mit Dark Mode Support) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {}
+        }
+      }
+    </script>
     
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -21,17 +29,19 @@
     <style>
         /* Spezielle Druck-Stile für den PDF/A4 Export */
         @media print {
-            body { background-color: white; }
+            body { background-color: white !important; color: black !important; }
             .no-print { display: none !important; }
             .print-only { display: block !important; }
             .print-container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
             table { width: 100%; border-collapse: collapse; }
-            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
+            th, td { border: 1px solid #ddd !important; padding: 8px; text-align: left; font-size: 12px; }
             th { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; }
+            .dark-print-fix { color: black !important; }
+            .print-month-header { background-color: #e5e7eb !important; font-weight: bold; }
         }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans">
+<body class="bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100 font-sans transition-colors duration-200">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -52,7 +62,7 @@
           breakfastDeduction: 5.60,
           overnightFlatrateWithoutReceipt: 30, // ⚠️ Unter Vorbehalt
           overnightFlatrateWithReceipt: 30,
-          geminiApiKey: '' // Für die Nutzung auf GitHub Pages
+          geminiApiKey: ''
         };
 
         const calculateDuration = (start, end, breakMinutes) => {
@@ -67,12 +77,22 @@
           return Math.max(0, durationMinutes / 60);
         };
 
+        const formatMonthName = (yyyyMM) => {
+            const [y, m] = yyyyMM.split('-');
+            const months = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+            return `${months[parseInt(m, 10) - 1]} ${y}`;
+        };
+
         function SpesenTracker() {
-          // State
+          // States
           const [activeTab, setActiveTab] = useState('dashboard');
           const [isScanning, setIsScanning] = useState(false);
           const fileInputRef = useRef(null);
           
+          const [isDarkMode, setIsDarkMode] = useState(() => {
+            return localStorage.getItem('theme') === 'dark';
+          });
+
           const [settings, setSettings] = useState(() => {
             const saved = localStorage.getItem('spesenSettings');
             return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
@@ -83,7 +103,7 @@
             return saved ? JSON.parse(saved) : [];
           });
 
-          // Save to local storage on change
+          // Effects for saving
           useEffect(() => {
             localStorage.setItem('spesenSettings', JSON.stringify(settings));
           }, [settings]);
@@ -92,19 +112,41 @@
             localStorage.setItem('spesenEntries', JSON.stringify(entries));
           }, [entries]);
 
-          const stats = useMemo(() => {
-            let currentZeitkonto = Number(settings.initialZeitkonto || 0);
-            let totalPayout = 0; // Money paid out for overtime (Girokonto)
-            let personalMoney = Number(settings.initialPersonalMoney || 0); // Spesen + Pauschalen (Spesenkonto C24)
-            let creditCardDebt = Number(settings.initialCreditCardDebt || 0); // Vorgelegte Kosten
-            let auslagenErstattung = 0; // Das Geld, das aufs Spesenkonto zurückfließt (Hotel, Parken, Sonstiges)
+          // Dark Mode Toggle Effect
+          useEffect(() => {
+            if (isDarkMode) {
+                document.documentElement.classList.add('dark');
+                localStorage.setItem('theme', 'dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                localStorage.setItem('theme', 'light');
+            }
+          }, [isDarkMode]);
 
-            entries.forEach(entry => {
-              // 1. Time Calculations
+          // Berechnungs-Logik: Stats + Monatlich gruppierte Einträge
+          const { stats, groupedEntries } = useMemo(() => {
+            let currentZeitkonto = Number(settings.initialZeitkonto || 0);
+            let totalPayoutCurrentMonth = 0; 
+            let personalMoney = Number(settings.initialPersonalMoney || 0);
+            let creditCardDebt = Number(settings.initialCreditCardDebt || 0); 
+            let auslagenErstattung = 0; 
+
+            const currentMonthStr = new Date().toISOString().substring(0, 7);
+            const groups = {};
+            
+            // WICHTIG: Chronologisch sortieren (älteste zuerst), damit das Zeitkonto korrekt hochzählt!
+            const sortedEntries = [...entries].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+            sortedEntries.forEach(entry => {
+              let calc = {
+                 payoutBase: 0, payoutBonus25: 0, payoutBonus50: 0, totalLohn: 0,
+                 hoursZeitkonto: 0, spesenTag: 0, 
+                 uebernachtungspauschale: 0, auslagenTag: 0
+              };
+
               if (entry.type === 'work') {
                 const overtime = Math.max(0, entry.duration - settings.dailyBaseHours);
                 
-                // Split overtime
                 let hoursToZeitkonto = 0;
                 let baseHoursToPayout = 0;
                 let bonus25Hours = 0;
@@ -113,17 +155,17 @@
                 if (overtime > 0) {
                   let spaceLeft = Math.max(0, settings.maxZeitkonto - currentZeitkonto);
 
-                  // 1. Überstunde (Geht aufs Konto. Geld & Bonus nur, wenn Konto voll ist)
+                  // 1. Überstunde
                   const h1 = Math.min(1, overtime);
                   const k1 = Math.min(h1, spaceLeft);
-                  const p1 = h1 - k1; // Was nicht aufs Konto passt
+                  const p1 = h1 - k1; 
                   
                   hoursToZeitkonto += k1;
                   spaceLeft -= k1;
                   baseHoursToPayout += p1;
                   bonus25Hours += p1; 
 
-                  // 2. Überstunde (Geht aufs Konto, aber 25% Bonus wird IMMER gezahlt)
+                  // 2. Überstunde
                   const h2 = Math.min(1, Math.max(0, overtime - 1));
                   const k2 = Math.min(h2, spaceLeft);
                   const p2 = h2 - k2;
@@ -131,73 +173,97 @@
                   hoursToZeitkonto += k2;
                   spaceLeft -= k2;
                   baseHoursToPayout += p2;
-                  bonus25Hours += h2; // Bonus wird auf die volle 2. Stunde gezahlt
+                  bonus25Hours += h2; // Bonus immer auf volle 2. Stunde
 
-                  // Ab der 3. Überstunde (Wird immer komplett ausgezahlt mit 50%)
+                  // Ab 3. Überstunde
                   const h3 = Math.max(0, overtime - 2);
                   baseHoursToPayout += h3;
                   bonus50Hours += h3;
                 }
 
                 currentZeitkonto += hoursToZeitkonto;
+                calc.hoursZeitkonto = hoursToZeitkonto;
 
-                // Calculate monetary payout for base hours -> Geht aufs Girokonto
-                totalPayout += (baseHoursToPayout * settings.hourlyRate);
-
-                // Calculate Bonus -> Geht aufs Girokonto
-                if (overtime > 0) {
-                  totalPayout += (bonus25Hours * settings.hourlyRate * (settings.overtimeBonusPercent / 100));
-                  totalPayout += (bonus50Hours * settings.hourlyRate * ((settings.overtimeBonusSpecialPercent || 50) / 100));
-                }
-
-                // 2. Spesen Calculations (Basierend auf Abwesenheit inkl. Pause) -> Geht aufs Spesenkonto
-                const durationGross = calculateDuration(entry.startTime, entry.endTime, 0);
+                // Geld-Berechnung Lohn (Kaufmännisches Runden auf 2 Nachkommastellen)
+                calc.payoutBase = Number((baseHoursToPayout * settings.hourlyRate).toFixed(2));
                 
+                if (overtime > 0) {
+                  calc.payoutBonus25 = Number((bonus25Hours * settings.hourlyRate * (settings.overtimeBonusPercent / 100)).toFixed(2));
+                  calc.payoutBonus50 = Number((bonus50Hours * settings.hourlyRate * ((settings.overtimeBonusSpecialPercent || 50) / 100)).toFixed(2));
+                }
+                
+                calc.totalLohn = Number((calc.payoutBase + calc.payoutBonus25 + calc.payoutBonus50).toFixed(2));
+                
+                // Lohn nur für Dashboard addieren, wenn es der aktuelle Monat ist
+                if (entry.date.startsWith(currentMonthStr)) {
+                   totalPayoutCurrentMonth += calc.totalLohn;
+                }
+
+                // Spesen
+                const durationGross = calculateDuration(entry.startTime, entry.endTime, 0);
                 if (durationGross >= 24) {
-                  personalMoney += settings.spesenLargeAmount;
+                  calc.spesenTag = settings.spesenLargeAmount;
                 } else if (durationGross >= settings.spesenSmallHours) {
-                  personalMoney += settings.spesenSmallAmount;
+                  calc.spesenTag = settings.spesenSmallAmount;
                 }
+                if (entry.breakfastIncluded) calc.spesenTag -= (settings.breakfastDeduction || 5.60);
+                
+                personalMoney += calc.spesenTag;
 
-                // Frühstücksabzug
-                if (entry.breakfastIncluded) {
-                  personalMoney -= (settings.breakfastDeduction || 5.60);
-                }
+                // Übernachtungspauschale
+                if (entry.overnight === 'receipt') calc.uebernachtungspauschale = settings.overnightFlatrateWithReceipt;
+                else if (entry.overnight === 'noreceipt') calc.uebernachtungspauschale = settings.overnightFlatrateWithoutReceipt;
+                
+                personalMoney += calc.uebernachtungspauschale;
 
-                // 3. Overnight Flatrates -> Geht aufs Spesenkonto
-                if (entry.overnight === 'receipt') {
-                  personalMoney += settings.overnightFlatrateWithReceipt;
-                } else if (entry.overnight === 'noreceipt') {
-                  personalMoney += settings.overnightFlatrateWithoutReceipt;
-                }
-
-                // 4. Expenses (Credit Card & Rückerstattung aufs Spesenkonto)
+                // Auslagen
                 const hotelCost = Number(entry.hotelCost || 0);
                 const parkCost = Number(entry.parkCost || 0);
                 const sonstigesCost = Number(entry.sonstigesCost || 0);
                 
-                const totalAuslagen = hotelCost + parkCost + sonstigesCost;
-                
-                // Wir schulden der KK dieses Geld
-                creditCardDebt += totalAuslagen;
-                // Die Firma überweist uns diese Auslagen aber zurück aufs Spesenkonto
-                auslagenErstattung += totalAuslagen;
+                calc.auslagenTag = hotelCost + parkCost + sonstigesCost;
+                creditCardDebt += calc.auslagenTag;
+                auslagenErstattung += calc.auslagenTag;
 
               } else if (entry.type === 'abbummeln') {
                 currentZeitkonto -= entry.hours;
+                calc.hoursZeitkonto = -entry.hours;
               } else if (entry.type === 'cc_paid') {
                 creditCardDebt -= entry.amount;
               }
+
+              // In Monats-Gruppen einsortieren
+              const monthKey = entry.date.substring(0, 7); // "YYYY-MM"
+              if (!groups[monthKey]) {
+                 groups[monthKey] = {
+                    entries: [],
+                    sums: { lohn: 0, spesen: 0, auslagen: 0 }
+                 };
+              }
+              groups[monthKey].entries.push({ ...entry, calc });
+              
+              if (entry.type === 'work') {
+                 groups[monthKey].sums.lohn += calc.totalLohn || 0;
+                 groups[monthKey].sums.spesen += (calc.spesenTag || 0) + (calc.uebernachtungspauschale || 0);
+                 groups[monthKey].sums.auslagen += calc.auslagenTag || 0;
+              }
             });
 
-            // Das gesamte Guthaben auf dem Spesenkonto ist: Echte Spesen + zurückgezahlte Auslagen
+            // Einträge innerhalb der Monate umkehren (neueste oben)
+            Object.keys(groups).forEach(key => {
+               groups[key].entries.reverse();
+            });
+
             const totalSpesenkonto = personalMoney + auslagenErstattung;
 
             return {
-              zeitkonto: currentZeitkonto.toFixed(2),
-              payout: totalPayout.toFixed(2),
-              spesenkonto: totalSpesenkonto.toFixed(2),
-              creditCardDebt: creditCardDebt.toFixed(2)
+              stats: {
+                 zeitkonto: currentZeitkonto.toFixed(2),
+                 payoutCurrentMonth: totalPayoutCurrentMonth.toFixed(2),
+                 spesenkonto: totalSpesenkonto.toFixed(2),
+                 creditCardDebt: creditCardDebt.toFixed(2)
+              },
+              groupedEntries: groups
             };
           }, [entries, settings]);
 
@@ -221,6 +287,28 @@
             }));
           };
 
+          // Funktion zum Runden auf 15-Minuten Schritte beim Verlassen des Feldes
+          const handleTimeBlur = (e) => {
+            const { name, value } = e.target;
+            if (!value) return;
+            
+            const [h, m] = value.split(':').map(Number);
+            const roundedM = Math.round(m / 15) * 15;
+            
+            let newH = h;
+            let newM = roundedM;
+            
+            if (roundedM === 60) {
+               newM = 0;
+               newH = (h + 1) % 24;
+            }
+            
+            setFormData(prev => ({
+               ...prev,
+               [name]: `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`
+            }));
+          };
+
           const handleAddEntry = (e) => {
             e.preventDefault();
             const duration = calculateDuration(formData.startTime, formData.endTime, formData.breakMinutes);
@@ -232,9 +320,9 @@
               ...formData
             };
 
-            setEntries([newEntry, ...entries]);
+            setEntries([...entries, newEntry]); 
             setFormData(prev => ({ ...prev, hotelCost: '', parkCost: '', sonstigesCost: '', overnight: 'none', breakfastIncluded: false }));
-            setActiveTab('dashboard');
+            setActiveTab('history'); 
           };
 
           const deleteEntry = (id) => {
@@ -246,18 +334,18 @@
           const handleAbbummeln = () => {
             const hours = parseFloat(prompt("Wie viele Stunden vom Zeitkonto abbummeln?"));
             if (hours && hours > 0) {
-              setEntries([{ id: Date.now().toString(), type: 'abbummeln', date: new Date().toISOString().split('T')[0], hours }, ...entries]);
+              setEntries([...entries, { id: Date.now().toString(), type: 'abbummeln', date: new Date().toISOString().split('T')[0], hours }]);
             }
           };
 
           const handleCCPaid = () => {
             const amount = parseFloat(prompt("Welcher Betrag wurde von der Kreditkarte abgebucht?"));
             if (amount && amount > 0) {
-              setEntries([{ id: Date.now().toString(), type: 'cc_paid', date: new Date().toISOString().split('T')[0], amount }, ...entries]);
+              setEntries([...entries, { id: Date.now().toString(), type: 'cc_paid', date: new Date().toISOString().split('T')[0], amount }]);
             }
           };
 
-          // --- Export / Import Funktionen ---
+          // --- Export / Import ---
           const exportJSON = () => {
              const dataStr = JSON.stringify({ settings, entries });
              const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
@@ -287,9 +375,16 @@
 
           const exportCSV = () => {
              let csvContent = "data:text/csv;charset=utf-8,";
-             csvContent += "Datum,Typ,Dauer(h),Start,Ende,Pause(Min),Hotel(€),Parken(€),Sonstiges(€),Übernachtungs-Typ\n";
+             csvContent += "Datum,Typ,Dauer(h),Start,Ende,Pause(Min),Lohn_Gesamt(€),Lohn_Grund(€),Bonus25(€),Bonus50(€),Zeitkonto(h),Spesen(€),Ü-Pauschale(€),Auslagen_Vorgestreckt(€)\n";
              
-             entries.forEach(e => {
+             // Alle Einträge für CSV flach klopfen
+             const allEnriched = [];
+             Object.values(groupedEntries).forEach(group => {
+                 allEnriched.push(...group.entries);
+             });
+
+             allEnriched.forEach(e => {
+                const c = e.calc || {};
                 const row = [
                    e.date,
                    e.type,
@@ -297,10 +392,14 @@
                    e.startTime || '',
                    e.endTime || '',
                    e.breakMinutes || '',
-                   e.hotelCost || '',
-                   e.parkCost || '',
-                   e.sonstigesCost || '',
-                   e.overnight || ''
+                   c.totalLohn ? c.totalLohn.toFixed(2) : '',
+                   c.payoutBase ? c.payoutBase.toFixed(2) : '',
+                   c.payoutBonus25 ? c.payoutBonus25.toFixed(2) : '',
+                   c.payoutBonus50 ? c.payoutBonus50.toFixed(2) : '',
+                   c.hoursZeitkonto ? c.hoursZeitkonto.toFixed(2) : '',
+                   c.spesenTag ? c.spesenTag.toFixed(2) : '',
+                   c.uebernachtungspauschale ? c.uebernachtungspauschale.toFixed(2) : '',
+                   c.auslagenTag ? c.auslagenTag.toFixed(2) : ''
                 ].join(",");
                 csvContent += row + "\n";
              });
@@ -308,82 +407,53 @@
              const encodedUri = encodeURI(csvContent);
              const link = document.createElement("a");
              link.setAttribute("href", encodedUri);
-             link.setAttribute("download", `Zeiten_Spesen_${new Date().toISOString().split('T')[0]}.csv`);
+             link.setAttribute("download", `Zeiten_Detail_${new Date().toISOString().split('T')[0]}.csv`);
              document.body.appendChild(link);
              link.click();
           };
 
-          // KI Scan Feature
           const handleFileUpload = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const apiKey = settings.geminiApiKey || "";
-            if (!apiKey) {
-                alert("Bitte trage zuerst deinen Gemini API Key in den Einstellungen ein, um den KI Scan auf GitHub Pages zu nutzen!");
-                return;
-            }
-
-            setIsScanning(true);
-            try {
-              const reader = new FileReader();
-              reader.onloadend = async () => {
-                const base64Data = reader.result.split(',')[1];
-                const payload = {
-                  contents: [{
-                    role: "user",
-                    parts: [
-                      { text: "Lese die Daten aus dem Timesheet aus und antworte NUR mit JSON: { \"date\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"breakMinutes\": Zahl (Standard 45), \"hotelCost\": Zahl, \"parkCost\": Zahl }. Keine Markdown Blöcke, nur pures JSON." },
-                      { inlineData: { mimeType: file.type, data: base64Data } }
-                    ]
-                  }],
-                  generationConfig: { responseMimeType: "application/json" }
-                };
-                
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload)
-                });
-                
-                if (!response.ok) throw new Error("API Error");
-                
-                const result = await response.json();
-                const jsonText = result.candidates[0].content.parts[0].text;
-                const data = JSON.parse(jsonText);
-                
-                setFormData(prev => ({
-                  ...prev,
-                  date: data.date || prev.date,
-                  startTime: data.startTime || prev.startTime,
-                  endTime: data.endTime || prev.endTime,
-                  breakMinutes: data.breakMinutes !== undefined ? data.breakMinutes : 45,
-                  hotelCost: data.hotelCost || prev.hotelCost,
-                  parkCost: data.parkCost || prev.parkCost
-                }));
-                setIsScanning(false);
-              };
-              reader.readAsDataURL(file);
-            } catch (error) {
-              console.error("AI Scan fehlgeschlagen", error);
-              alert("Scan fehlgeschlagen. Ist der API Key korrekt?");
-              setIsScanning(false);
-            }
+             const file = e.target.files[0];
+             if (!file) return;
+             const apiKey = settings.geminiApiKey || "";
+             if (!apiKey) {
+                 alert("Bitte trage zuerst deinen API Key ein!"); return;
+             }
+             setIsScanning(true);
+             try {
+               const reader = new FileReader();
+               reader.onloadend = async () => {
+                 const base64Data = reader.result.split(',')[1];
+                 const payload = { contents: [{ role: "user", parts: [{ text: "JSON Format: { \"date\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"breakMinutes\": 45, \"hotelCost\": 0, \"parkCost\": 0 }. Nur pures JSON ohne Formatierung." }, { inlineData: { mimeType: file.type, data: base64Data } }] }], generationConfig: { responseMimeType: "application/json" } };
+                 const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                 if (!response.ok) throw new Error("API Error");
+                 const result = await response.json();
+                 const data = JSON.parse(result.candidates[0].content.parts[0].text);
+                 setFormData(prev => ({ ...prev, date: data.date||prev.date, startTime: data.startTime||prev.startTime, endTime: data.endTime||prev.endTime, breakMinutes: data.breakMinutes!==undefined?data.breakMinutes:45, hotelCost: data.hotelCost||prev.hotelCost, parkCost: data.parkCost||prev.parkCost }));
+                 setIsScanning(false);
+               };
+               reader.readAsDataURL(file);
+             } catch (error) { alert("Scan fehlgeschlagen."); setIsScanning(false); }
           };
 
           return (
-            <div className="min-h-screen pb-10 bg-gray-50">
+            <div className="min-h-screen pb-10">
               {/* Navigation */}
-              <nav className="bg-blue-900 text-white p-4 shadow-md sticky top-0 z-10 no-print">
+              <nav className="bg-blue-900 dark:bg-gray-950 text-white p-4 shadow-md sticky top-0 z-10 no-print transition-colors">
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
                   <h1 className="text-xl font-bold flex items-center gap-2">
                     <i className="fa-solid fa-truck-fast text-xl"></i> Track & Travel
                   </h1>
-                  <div className="flex gap-2 sm:gap-4">
-                     <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Dashboard"><i className="fa-solid fa-chart-pie text-xl"></i></button>
-                     <button onClick={() => setActiveTab('track')} className={`p-2 rounded ${activeTab === 'track' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Neuer Eintrag"><i className="fa-solid fa-circle-plus text-xl"></i></button>
-                     <button onClick={() => setActiveTab('history')} className={`p-2 rounded ${activeTab === 'history' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Verlauf"><i className="fa-solid fa-book-open text-xl"></i></button>
-                     <button onClick={() => setActiveTab('settings')} className={`p-2 rounded ${activeTab === 'settings' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Einstellungen"><i className="fa-solid fa-gear text-xl"></i></button>
+                  <div className="flex gap-1 sm:gap-3 items-center">
+                     {/* Theme Toggle */}
+                     <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 rounded hover:bg-blue-800 dark:hover:bg-gray-800 text-yellow-300 dark:text-blue-300 mr-2" title="Dark/Light Mode">
+                        {isDarkMode ? <i className="fa-solid fa-sun text-lg"></i> : <i className="fa-solid fa-moon text-lg"></i>}
+                     </button>
+
+                     <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-blue-800 dark:bg-gray-800' : 'hover:bg-blue-800 dark:hover:bg-gray-800'}`} title="Dashboard"><i className="fa-solid fa-chart-pie text-xl"></i></button>
+                     <button onClick={() => setActiveTab('track')} className={`p-2 rounded ${activeTab === 'track' ? 'bg-blue-800 dark:bg-gray-800' : 'hover:bg-blue-800 dark:hover:bg-gray-800'}`} title="Neuer Eintrag"><i className="fa-solid fa-circle-plus text-xl"></i></button>
+                     <button onClick={() => setActiveTab('history')} className={`p-2 rounded ${activeTab === 'history' ? 'bg-blue-800 dark:bg-gray-800' : 'hover:bg-blue-800 dark:hover:bg-gray-800'}`} title="Verlauf"><i className="fa-solid fa-book-open text-xl"></i></button>
+                     <button onClick={() => setActiveTab('settings')} className={`p-2 rounded ${activeTab === 'settings' ? 'bg-blue-800 dark:bg-gray-800' : 'hover:bg-blue-800 dark:hover:bg-gray-800'}`} title="Einstellungen"><i className="fa-solid fa-gear text-xl"></i></button>
                   </div>
                 </div>
               </nav>
@@ -392,59 +462,59 @@
                 
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
-                    <h2 className="text-2xl font-bold text-gray-800 border-b pb-2">Konten & Übersicht</h2>
+                    <h2 className="text-2xl font-bold border-b border-gray-200 dark:border-gray-700 pb-2">Konten & Übersicht</h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Zeitkonto Card */}
-                      <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center">
+                      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-100 dark:border-gray-700 flex flex-col items-center text-center">
                         <i className="fa-solid fa-clock text-4xl text-blue-500 mb-2"></i>
-                        <h3 className="text-gray-500 font-medium">Zeitkonto</h3>
-                        <div className="text-4xl font-bold text-gray-800 my-2">
+                        <h3 className="text-gray-500 dark:text-gray-400 font-medium">Zeitkonto (Gesamt)</h3>
+                        <div className="text-4xl font-bold my-2">
                           {stats.zeitkonto} <span className="text-xl text-gray-400 font-normal">/ {settings.maxZeitkonto}h</span>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mt-2">
                           <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${Math.min(100, (stats.zeitkonto / settings.maxZeitkonto) * 100)}%` }}></div>
                         </div>
-                        <button onClick={handleAbbummeln} className="mt-4 text-sm text-blue-600 hover:underline"><i className="fa-solid fa-minus-circle"></i> Stunden abbummeln</button>
+                        <button onClick={handleAbbummeln} className="mt-4 text-sm text-blue-600 dark:text-blue-400 hover:underline"><i className="fa-solid fa-minus-circle"></i> Stunden abbummeln</button>
                       </div>
 
-                      {/* Girokonto Card */}
-                      <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center">
+                      {/* Girokonto Card (Nur aktueller Monat) */}
+                      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-100 dark:border-gray-700 flex flex-col items-center text-center">
                         <i className="fa-solid fa-building-columns text-4xl text-emerald-500 mb-2"></i>
-                        <h3 className="text-gray-500 font-medium">Girokonto / Lohn</h3>
-                        <div className="text-4xl font-bold text-emerald-600 my-2">
-                          + {stats.payout} €
+                        <h3 className="text-gray-500 dark:text-gray-400 font-medium">Lohn (Aktueller Monat)</h3>
+                        <div className="text-4xl font-bold text-emerald-600 dark:text-emerald-400 my-2">
+                          + {stats.payoutCurrentMonth} €
                         </div>
-                        <p className="text-xs text-gray-400">Ausbezahlte Überstunden & Boni</p>
+                        <p className="text-xs text-gray-400">Ausbezahlte Überstunden & Boni in diesem Monat</p>
                       </div>
 
                       {/* Spesenkonto (C24) Card */}
-                      <div className="bg-white p-6 rounded-xl shadow border-l-4 border-l-blue-400 flex flex-col items-center text-center md:col-span-2">
+                      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border-l-4 border-l-blue-400 dark:border-l-blue-500 flex flex-col items-center text-center md:col-span-2">
                         <div className="flex items-center justify-center gap-3 mb-2">
-                            <i className="fa-solid fa-wallet text-3xl text-blue-600"></i>
-                            <h3 className="text-gray-600 font-bold text-lg">Spesenkonto (C24 Bank)</h3>
+                            <i className="fa-solid fa-wallet text-3xl text-blue-600 dark:text-blue-400"></i>
+                            <h3 className="text-gray-600 dark:text-gray-300 font-bold text-lg">Spesenkonto (Gesamt auf C24 Bank)</h3>
                         </div>
-                        <div className="text-5xl font-bold text-blue-700 my-2">
+                        <div className="text-5xl font-bold text-blue-700 dark:text-blue-500 my-2">
                           {stats.spesenkonto} €
                         </div>
-                        <p className="text-sm text-gray-500 max-w-lg mx-auto">
-                          Dieses Geld gehört auf dein separates Spesenkonto. Es beinhaltet deine <b>Verpflegungspauschalen</b>, <b>Übernachtungspauschalen</b> sowie die <b>Rückerstattung deiner vorgestreckten Auslagen</b>.
+                        <p className="text-sm text-gray-500 dark:text-gray-400 max-w-lg mx-auto">
+                          Dieses Geld gehört auf dein separates Spesenkonto. Es beinhaltet <b>Pauschalen</b> sowie die <b>Rückerstattung deiner vorgestreckten Auslagen</b>.
                         </p>
                       </div>
 
                       {/* CC Debt Card */}
-                      <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center md:col-span-2">
+                      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow border border-gray-100 dark:border-gray-700 flex flex-col items-center text-center md:col-span-2">
                         <div className="flex justify-between w-full items-center mb-4">
                            <div className="flex items-center gap-2">
-                               <i className="fa-solid fa-credit-card text-2xl text-red-500"></i>
-                               <h3 className="text-gray-600 font-medium text-left">Vorgestreckte Auslagen<br/><span className="text-xs text-gray-400">Noch offene Rechnungen der Kreditkarte</span></h3>
+                               <i className="fa-solid fa-credit-card text-2xl text-red-500 dark:text-red-400"></i>
+                               <h3 className="text-gray-600 dark:text-gray-300 font-medium text-left">Vorgestreckte Auslagen<br/><span className="text-xs text-gray-400">Offene Kreditkartenrechnung</span></h3>
                            </div>
-                           <div className="text-3xl font-bold text-red-500">
+                           <div className="text-3xl font-bold text-red-500 dark:text-red-400">
                              - {stats.creditCardDebt} €
                            </div>
                         </div>
-                        <button onClick={handleCCPaid} className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-semibold py-3 px-4 rounded-lg text-sm transition-colors border border-red-200">
-                          <i className="fa-solid fa-check-double"></i> Kreditkarten-Abrechnung wurde vom Konto abgebucht
+                        <button onClick={handleCCPaid} className="w-full bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-red-700 dark:text-red-400 font-semibold py-3 px-4 rounded-lg text-sm transition-colors border border-red-200 dark:border-red-800">
+                          <i className="fa-solid fa-check-double"></i> Kreditkarten-Abrechnung bezahlt
                         </button>
                       </div>
                     </div>
@@ -452,20 +522,15 @@
                 )}
 
                 {activeTab === 'track' && (
-                  <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-                    <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center">
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-100 dark:border-gray-700 overflow-hidden">
+                    <div className="p-6 bg-blue-50 dark:bg-blue-900/30 border-b border-blue-100 dark:border-blue-800 flex justify-between items-center">
                       <div>
-                        <h2 className="text-xl font-bold text-blue-900">Neuer Eintrag</h2>
-                        <p className="text-sm text-blue-700">Erfasse Arbeitszeit und Auslagen</p>
+                        <h2 className="text-xl font-bold text-blue-900 dark:text-blue-100">Neuer Eintrag</h2>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">Zeiten werden beim Klick in's nächste Feld auf 15-Min gerundet!</p>
                       </div>
                       <div>
                         <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                        <button 
-                          type="button"
-                          onClick={() => fileInputRef.current?.click()} 
-                          disabled={isScanning}
-                          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 shadow"
-                        >
+                        <button onClick={() => fileInputRef.current?.click()} disabled={isScanning} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow">
                           <i className="fa-solid fa-camera"></i> {isScanning ? 'Scannt...' : 'KI Scan'}
                         </button>
                       </div>
@@ -473,47 +538,46 @@
                     
                     <form onSubmit={handleAddEntry} className="p-6 space-y-8">
                       <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-clock text-blue-500"></i> Arbeitszeit</h3>
+                        <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-clock text-blue-500"></i> Arbeitszeit</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Datum</label>
-                            <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Datum</label>
+                            <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Pause (Minuten)</label>
-                            <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" min="0" required />
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Pause (Minuten)</label>
+                            <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" min="0" required />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Startzeit</label>
-                            <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Startzeit</label>
+                            <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} onBlur={handleTimeBlur} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Endzeit</label>
-                            <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Endzeit</label>
+                            <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} onBlur={handleTimeBlur} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-bed text-indigo-500"></i> Reise & Übernachtung</h3>
-                        
+                        <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-bed text-indigo-500"></i> Reise & Übernachtung</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           <div className="col-span-1 md:col-span-2">
-                            <label className="block text-sm text-gray-600 mb-3">Übernachtungsart auswählen:</label>
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-3">Übernachtungsart auswählen:</label>
                             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'none' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'none' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
                                 <input type="radio" name="overnight" value="none" checked={formData.overnight === 'none'} onChange={handleInputChange} className="hidden" /> 
                                 <i className="fa-solid fa-house text-gray-400 block mb-1"></i> Keine
                               </label>
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'hotel' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'hotel' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
                                 <input type="radio" name="overnight" value="hotel" checked={formData.overnight === 'hotel'} onChange={handleInputChange} className="hidden" /> 
                                 <i className="fa-solid fa-bell-concierge text-indigo-400 block mb-1"></i> Hotelbuchung
                               </label>
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'receipt' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'receipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
                                 <input type="radio" name="overnight" value="receipt" checked={formData.overnight === 'receipt'} onChange={handleInputChange} className="hidden" /> 
                                 <i className="fa-solid fa-file-invoice text-emerald-400 block mb-1"></i> ÜP mit Beleg
                               </label>
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'noreceipt' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'noreceipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
                                 <input type="radio" name="overnight" value="noreceipt" checked={formData.overnight === 'noreceipt'} onChange={handleInputChange} className="hidden" /> 
                                 <i className="fa-solid fa-user-group text-orange-400 block mb-1"></i> ÜP ohne Beleg
                               </label>
@@ -523,12 +587,12 @@
                           {formData.overnight === 'hotel' && (
                             <React.Fragment>
                               <div>
-                                <label className="block text-sm text-gray-600 mb-1">Hotelkosten (€)</label>
-                                <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                                <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Hotelkosten (€)</label>
+                                <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
                               </div>
                               <div className="flex items-center pb-2">
-                                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer bg-gray-100 p-3 rounded-lg border w-full hover:bg-gray-200">
-                                  <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded w-4 h-4" /> <i className="fa-solid fa-mug-hot text-amber-600"></i> inkl. Frühstück (-5,60€)
+                                 <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer bg-gray-100 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 w-full">
+                                  <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded" /> <i className="fa-solid fa-mug-hot text-amber-600"></i> inkl. Frühstück (-5,60€)
                                 </label>
                               </div>
                             </React.Fragment>
@@ -537,111 +601,139 @@
                       </div>
 
                       <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-receipt text-red-500"></i> Weitere Auslagen</h3>
+                        <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-receipt text-red-500"></i> Weitere Auslagen</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Parkkosten (€)</label>
-                            <div className="relative">
-                               <i className="fa-solid fa-square-parking absolute left-4 top-4 text-gray-400"></i>
-                               <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-3 pl-11 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
-                            </div>
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Parkkosten (€)</label>
+                            <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Sonstiges (Leihwagen, Maut etc.) (€)</label>
-                            <div className="relative">
-                               <i className="fa-solid fa-car absolute left-4 top-4 text-gray-400"></i>
-                               <input type="number" step="0.01" name="sonstigesCost" value={formData.sonstigesCost} onChange={handleInputChange} className="w-full p-3 pl-11 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
-                            </div>
+                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Sonstiges (Leihwagen etc.) (€)</label>
+                            <input type="number" step="0.01" name="sonstigesCost" value={formData.sonstigesCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
                           </div>
                         </div>
                       </div>
 
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-lg shadow-lg">
-                        <i className="fa-solid fa-floppy-disk text-xl"></i> Eintrag im Logbuch speichern
+                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-lg">
+                        <i className="fa-solid fa-floppy-disk text-xl"></i> Eintrag speichern
                       </button>
                     </form>
                   </div>
                 )}
 
                 {activeTab === 'history' && (
-                  <div className="bg-white rounded-xl shadow overflow-hidden print-container">
-                     <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <h2 className="text-xl font-bold text-gray-800"><i className="fa-solid fa-book-open text-blue-600 mr-2"></i> Logbuch & Verlauf</h2>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow overflow-hidden print-container">
+                     <div className="p-6 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800/50">
+                        <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100"><i className="fa-solid fa-book-open text-blue-600 mr-2"></i> Logbuch (Detail)</h2>
                         <div className="flex gap-2 no-print">
-                           <button onClick={exportCSV} className="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm shadow-sm">
-                             <i className="fa-solid fa-file-csv text-green-600"></i> CSV
-                           </button>
-                           <button onClick={() => window.print()} className="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm shadow-sm">
-                             <i className="fa-solid fa-print text-gray-600"></i> Drucken
-                           </button>
+                           <button onClick={exportCSV} className="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 px-3 py-1.5 rounded flex items-center gap-2 text-sm shadow-sm"><i className="fa-solid fa-file-csv text-green-600"></i> CSV</button>
+                           <button onClick={() => window.print()} className="bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 px-3 py-1.5 rounded flex items-center gap-2 text-sm shadow-sm"><i className="fa-solid fa-print text-gray-600 dark:text-gray-300"></i> Druck</button>
                         </div>
                      </div>
                      <div className="overflow-x-auto">
                        <table className="w-full text-left border-collapse">
                          <thead>
-                           <tr className="bg-gray-100 text-gray-600 text-sm border-b">
-                             <th className="p-3">Datum</th>
-                             <th className="p-3">Zeiten / Dauer</th>
-                             <th className="p-3">Auslagen (Hotel/Park/Sonst)</th>
-                             <th className="p-3">Übernachtung</th>
+                           <tr className="bg-gray-100 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300 text-sm border-b dark:border-gray-600">
+                             <th className="p-3">Datum / Zeit</th>
+                             <th className="p-3">Lohn (Giro) & Zeitkonto</th>
+                             <th className="p-3">Spesen & Auslagen (C24)</th>
                              <th className="p-3 no-print text-right">Aktion</th>
                            </tr>
                          </thead>
-                         <tbody>
-                           {entries.length === 0 ? (
-                             <tr><td colSpan="5" className="p-8 text-center text-gray-400">Keine Einträge vorhanden</td></tr>
-                           ) : entries.map(entry => {
-                             // Berechne Summe der Auslagen für diesen Eintrag
-                             const totalAuslagen = (Number(entry.hotelCost)||0) + (Number(entry.parkCost)||0) + (Number(entry.sonstigesCost)||0);
-                             let overnightText = '-';
-                             if(entry.overnight === 'hotel') overnightText = 'Hotel';
-                             if(entry.overnight === 'receipt') overnightText = 'ÜP mit Beleg';
-                             if(entry.overnight === 'noreceipt') overnightText = 'ÜP ohne Beleg';
-
-                             return (
-                             <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                               <td className="p-3 font-medium text-gray-700 whitespace-nowrap">
-                                 {new Date(entry.date).toLocaleDateString('de-DE')}
-                               </td>
+                         <tbody className="text-sm">
+                           {Object.keys(groupedEntries).length === 0 ? (
+                             <tr><td colSpan="4" className="p-8 text-center text-gray-400">Keine Einträge vorhanden</td></tr>
+                           ) : Object.keys(groupedEntries).sort().reverse().map(monthKey => {
+                               const group = groupedEntries[monthKey];
                                
-                               <td className="p-3 text-sm text-gray-600">
-                                 {entry.type === 'work' && (
-                                   <div>
-                                     <span className="font-semibold text-blue-700">{entry.duration.toFixed(2)}h</span> <br/>
-                                     <span className="text-xs text-gray-400">{entry.startTime} - {entry.endTime} (Pause: {entry.breakMinutes}m)</span>
-                                   </div>
-                                 )}
-                                 {entry.type === 'abbummeln' && <span className="text-orange-600 font-semibold">-{entry.hours}h Abbummeln</span>}
-                                 {entry.type === 'cc_paid' && <span className="text-green-600 font-semibold">KK Abgebucht</span>}
-                               </td>
+                               return (
+                                 <React.Fragment key={monthKey}>
+                                    {/* Monats-Kopfzeile */}
+                                    <tr className="bg-blue-50 dark:bg-blue-900/20 border-b border-t border-blue-100 dark:border-blue-800 print-month-header">
+                                       <td colSpan="4" className="p-3">
+                                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center">
+                                             <span className="font-bold text-blue-900 dark:text-blue-100 text-base mb-2 sm:mb-0">
+                                                 <i className="fa-regular fa-calendar-days mr-2"></i>{formatMonthName(monthKey)}
+                                             </span>
+                                             <div className="flex gap-4 text-xs font-semibold">
+                                                <span className="bg-white dark:bg-gray-800 text-emerald-600 dark:text-emerald-400 px-2 py-1 rounded shadow-sm border border-emerald-100 dark:border-emerald-800">
+                                                    Σ Lohn: +{group.sums.lohn.toFixed(2)} €
+                                                </span>
+                                                <span className="bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 px-2 py-1 rounded shadow-sm border border-blue-100 dark:border-blue-800">
+                                                    Σ Spesen/Ausl.: +{(group.sums.spesen + group.sums.auslagen).toFixed(2)} €
+                                                </span>
+                                             </div>
+                                          </div>
+                                       </td>
+                                    </tr>
 
-                               <td className="p-3 text-sm">
-                                 {entry.type === 'work' && totalAuslagen > 0 ? (
-                                    <div className="text-red-600 font-medium">
-                                       {totalAuslagen.toFixed(2)} €
-                                       <div className="text-xs text-gray-400 mt-0.5">
-                                          {entry.hotelCost > 0 && `H: ${entry.hotelCost}€ `}
-                                          {entry.parkCost > 0 && `P: ${entry.parkCost}€ `}
-                                          {entry.sonstigesCost > 0 && `S: ${entry.sonstigesCost}€`}
-                                       </div>
-                                    </div>
-                                 ) : <span className="text-gray-300">-</span>}
-                                 {entry.type === 'cc_paid' && <span className="text-green-600 font-bold">{entry.amount} €</span>}
-                               </td>
+                                    {/* Einträge für diesen Monat */}
+                                    {group.entries.map(entry => {
+                                       const c = entry.calc || {};
+                                       
+                                       return (
+                                       <tr key={entry.id} className="border-b border-gray-50 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                                         <td className="p-3 align-top">
+                                           <div className="font-bold dark-print-fix">{new Date(entry.date).toLocaleDateString('de-DE')}</div>
+                                           {entry.type === 'work' && (
+                                             <div className="text-gray-500 dark:text-gray-400 mt-1">
+                                               <span className="text-blue-600 dark:text-blue-400 font-bold">{entry.duration.toFixed(2)}h</span><br/>
+                                               {entry.startTime} - {entry.endTime}<br/>
+                                               (Pause: {entry.breakMinutes}m)
+                                             </div>
+                                           )}
+                                           {entry.type === 'abbummeln' && <span className="text-orange-600 font-semibold mt-1 block">Abbummeln</span>}
+                                           {entry.type === 'cc_paid' && <span className="text-green-600 font-semibold mt-1 block">KK bezahlt</span>}
+                                         </td>
+                                         
+                                         <td className="p-3 align-top">
+                                           {entry.type === 'work' && (
+                                             <div className="space-y-1">
+                                                <div className="text-emerald-600 dark:text-emerald-400 font-bold">Lohn: +{c.totalLohn?.toFixed(2)} €</div>
+                                                <div className="text-xs text-gray-500 dark:text-gray-400 pl-2 border-l-2 border-gray-200 dark:border-gray-600 ml-1">
+                                                  • Grund: {c.payoutBase?.toFixed(2)} €<br/>
+                                                  • Bonus(25%): {c.payoutBonus25?.toFixed(2)} €<br/>
+                                                  • Bonus(50%): {c.payoutBonus50?.toFixed(2)} €
+                                                </div>
+                                                <div className="text-blue-600 dark:text-blue-400 font-bold mt-2">Konto: +{c.hoursZeitkonto?.toFixed(2)}h</div>
+                                             </div>
+                                           )}
+                                           {entry.type === 'abbummeln' && <span className="text-orange-600 font-bold">-{entry.hours}h</span>}
+                                         </td>
 
-                               <td className="p-3 text-sm text-gray-600">
-                                  {entry.type === 'work' ? (
-                                    <span className={entry.overnight !== 'none' ? 'bg-indigo-100 text-indigo-800 py-1 px-2 rounded-full text-xs font-semibold' : ''}>
-                                      {overnightText}
-                                    </span>
-                                  ) : ''}
-                               </td>
+                                         <td className="p-3 align-top">
+                                           {entry.type === 'work' && (
+                                             <div className="space-y-1">
+                                                <div className="text-blue-700 dark:text-blue-400 font-bold">Spesen: +{c.spesenTag?.toFixed(2)} €</div>
+                                                
+                                                {c.uebernachtungspauschale > 0 && (
+                                                  <div className="text-indigo-600 dark:text-indigo-400 font-bold">Ü-Pausch.: +{c.uebernachtungspauschale.toFixed(2)} €</div>
+                                                )}
+                                                
+                                                {c.auslagenTag > 0 && (
+                                                  <div className="mt-2">
+                                                    <div className="text-red-600 dark:text-red-400 font-bold">Auslagen: +{c.auslagenTag.toFixed(2)} €</div>
+                                                    <div className="text-xs text-gray-500 dark:text-gray-400 pl-2 border-l-2 border-gray-200 dark:border-gray-600 ml-1">
+                                                      {entry.hotelCost > 0 && `• Hotel: ${entry.hotelCost}€ `}<br/>
+                                                      {entry.parkCost > 0 && `• Parken: ${entry.parkCost}€ `}<br/>
+                                                      {entry.sonstigesCost > 0 && `• Sonst.: ${entry.sonstigesCost}€`}
+                                                    </div>
+                                                  </div>
+                                                )}
+                                             </div>
+                                           )}
+                                           {entry.type === 'cc_paid' && <span className="text-green-600 font-bold">-{entry.amount} € Ausgleich</span>}
+                                         </td>
 
-                               <td className="p-3 text-right no-print">
-                                 <button onClick={() => deleteEntry(entry.id)} className="text-red-300 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors"><i className="fa-solid fa-trash"></i></button>
-                               </td>
-                             </tr>
-                           )})}
+                                         <td className="p-3 text-right no-print align-top">
+                                           <button onClick={() => deleteEntry(entry.id)} className="text-red-400 hover:text-red-600 p-2"><i className="fa-solid fa-trash"></i></button>
+                                         </td>
+                                       </tr>
+                                       );
+                                    })}
+                                 </React.Fragment>
+                               );
+                           })}
                          </tbody>
                        </table>
                      </div>
@@ -649,105 +741,42 @@
                 )}
 
                 {activeTab === 'settings' && (
-                  <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto space-y-6">
-                     <h2 className="text-xl font-bold text-gray-800 border-b pb-2"><i className="fa-solid fa-sliders text-blue-600 mr-2"></i> Einstellungen & Regeln</h2>
+                  <div className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 max-w-2xl mx-auto space-y-6">
+                     <h2 className="text-xl font-bold border-b border-gray-200 dark:border-gray-700 pb-2"><i className="fa-solid fa-sliders text-blue-600 mr-2"></i> Einstellungen</h2>
                      
                      <div className="space-y-4">
-
-                        {/* Daten Sichern / Importieren Bereich */}
-                        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-6">
-                           <h4 className="font-semibold text-indigo-900 mb-2"><i className="fa-solid fa-cloud-arrow-down"></i> Daten Sichern & Übertragen</h4>
-                           <p className="text-xs text-indigo-700 mb-4">
-                             Da die App lokal in deinem Browser läuft, musst du die Daten exportieren, wenn du sie vom Handy auf den PC übertragen möchtest. 
-                           </p>
+                        <div className="bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-100 dark:border-indigo-800 p-4 rounded-xl mb-6">
+                           <h4 className="font-semibold text-indigo-900 dark:text-indigo-200 mb-2"><i className="fa-solid fa-cloud-arrow-down"></i> Daten Sichern & Übertragen</h4>
                            <div className="flex flex-wrap gap-2">
-                             <button onClick={exportJSON} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 px-4 rounded shadow">
-                               <i className="fa-solid fa-download mr-2"></i> Backup speichern
-                             </button>
-                             <label className="bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 cursor-pointer text-sm py-2 px-4 rounded shadow">
-                               <i className="fa-solid fa-upload mr-2"></i> Backup laden
-                               <input type="file" accept=".json" onChange={importJSON} className="hidden" />
-                             </label>
+                             <button onClick={exportJSON} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 px-4 rounded shadow"><i className="fa-solid fa-download mr-2"></i> Backup speichern</button>
+                             <label className="bg-white dark:bg-gray-700 border border-indigo-300 dark:border-indigo-600 cursor-pointer text-sm py-2 px-4 rounded shadow"><i className="fa-solid fa-upload mr-2"></i> Backup laden <input type="file" accept=".json" onChange={importJSON} className="hidden" /></label>
                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Basis-Stunden/Tag</label>
-                            <input type="number" value={settings.dailyBaseHours} onChange={e => setSettings({...settings, dailyBaseHours: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Stundenlohn (€)</label>
-                            <input type="number" value={settings.hourlyRate} onChange={e => setSettings({...settings, hourlyRate: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
+                          <div><label className="block text-sm mb-1">Basis-Stunden/Tag</label><input type="number" value={settings.dailyBaseHours} onChange={e => setSettings({...settings, dailyBaseHours: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Stundenlohn (€)</label><input type="number" value={settings.hourlyRate} onChange={e => setSettings({...settings, hourlyRate: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
                           
-                          <div className="col-span-2 border-t pt-2 mt-2">
-                            <h4 className="font-semibold text-gray-700 mb-2">Manuelle Startwerte korrigieren</h4>
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Zeitkonto (h)</label>
-                            <input type="number" step="0.1" value={settings.initialZeitkonto || 0} onChange={e => setSettings({...settings, initialZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded border-blue-300 bg-blue-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Spesenkonto C24 (€)</label>
-                            <input type="number" step="0.01" value={settings.initialPersonalMoney || 0} onChange={e => setSettings({...settings, initialPersonalMoney: Number(e.target.value)})} className="w-full p-2 border rounded border-emerald-300 bg-emerald-50" />
-                          </div>
-                          <div className="col-span-2">
-                            <label className="block text-sm text-gray-600 mb-1">Kreditkarte Offen (€)</label>
-                            <input type="number" step="0.01" value={settings.initialCreditCardDebt || 0} onChange={e => setSettings({...settings, initialCreditCardDebt: Number(e.target.value)})} className="w-full p-2 border rounded border-red-300 bg-red-50 max-w-[50%]" />
-                          </div>
+                          <div className="col-span-2 border-t dark:border-gray-700 pt-2 mt-2"><h4 className="font-semibold mb-2">Manuelle Startwerte</h4></div>
+                          <div><label className="block text-sm mb-1">Zeitkonto (h)</label><input type="number" step="0.1" value={settings.initialZeitkonto || 0} onChange={e => setSettings({...settings, initialZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded border-blue-300 bg-blue-50 dark:bg-blue-900/20" /></div>
+                          <div><label className="block text-sm mb-1">Spesenkonto C24 (€)</label><input type="number" step="0.01" value={settings.initialPersonalMoney || 0} onChange={e => setSettings({...settings, initialPersonalMoney: Number(e.target.value)})} className="w-full p-2 border rounded border-emerald-300 bg-emerald-50 dark:bg-emerald-900/20" /></div>
+                          <div className="col-span-2"><label className="block text-sm mb-1">Kreditkarte Offen (€)</label><input type="number" step="0.01" value={settings.initialCreditCardDebt || 0} onChange={e => setSettings({...settings, initialCreditCardDebt: Number(e.target.value)})} className="w-full p-2 border rounded border-red-300 bg-red-50 dark:bg-red-900/20 max-w-[50%]" /></div>
 
-                          <div className="col-span-2 border-t pt-2 mt-2">
-                            <h4 className="font-semibold text-gray-700 mb-2">Zuschläge & Boni</h4>
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Max. Zeitkonto (h)</label>
-                            <input type="number" value={settings.maxZeitkonto} onChange={e => setSettings({...settings, maxZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Bonus 1.+2. Ü-Stunde (%)</label>
-                            <input type="number" value={settings.overtimeBonusPercent} onChange={e => setSettings({...settings, overtimeBonusPercent: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Bonus ab 3. Ü-Stunde (%)</label>
-                            <input type="number" value={settings.overtimeBonusSpecialPercent || 50} onChange={e => setSettings({...settings, overtimeBonusSpecialPercent: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
+                          <div className="col-span-2 border-t dark:border-gray-700 pt-2 mt-2"><h4 className="font-semibold mb-2">Zuschläge & Pauschalen</h4></div>
+                          <div><label className="block text-sm mb-1">Max. Zeitkonto (h)</label><input type="number" value={settings.maxZeitkonto} onChange={e => setSettings({...settings, maxZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Bonus 1.+2. Ü-Std (%)</label><input type="number" value={settings.overtimeBonusPercent} onChange={e => setSettings({...settings, overtimeBonusPercent: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Bonus ab 3. Ü-Std (%)</label><input type="number" value={settings.overtimeBonusSpecialPercent || 50} onChange={e => setSettings({...settings, overtimeBonusSpecialPercent: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Kleine Spesen ab Std.</label><input type="number" value={settings.spesenSmallHours || 8} onChange={e => setSettings({...settings, spesenSmallHours: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Kleine Spesen Betrag</label><input type="number" value={settings.spesenSmallAmount || 14} onChange={e => setSettings({...settings, spesenSmallAmount: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Große Spesen (24h)</label><input type="number" value={settings.spesenLargeAmount || 28} onChange={e => setSettings({...settings, spesenLargeAmount: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">Frühstück-Abzug</label><input type="number" step="0.01" value={settings.breakfastDeduction || 5.60} onChange={e => setSettings({...settings, breakfastDeduction: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">ÜP ohne Beleg</label><input type="number" value={settings.overnightFlatrateWithoutReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithoutReceipt: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
+                          <div><label className="block text-sm mb-1">ÜP mit Beleg</label><input type="number" value={settings.overnightFlatrateWithReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithReceipt: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50 dark:bg-gray-900 dark:border-gray-600" /></div>
                         </div>
 
-                        <h3 className="font-semibold text-gray-700 mt-6 pt-4 border-t">Pauschalen laut HR</h3>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Kleine Spesen (ab Std.)</label>
-                            <input type="number" value={settings.spesenSmallHours || 8} onChange={e => setSettings({...settings, spesenSmallHours: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Betrag Kleine Spesen (€)</label>
-                            <input type="number" value={settings.spesenSmallAmount || 14} onChange={e => setSettings({...settings, spesenSmallAmount: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Große 24h Spesen (€)</label>
-                            <input type="number" value={settings.spesenLargeAmount || 28} onChange={e => setSettings({...settings, spesenLargeAmount: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">Frühstück-Abzug (€)</label>
-                            <input type="number" step="0.01" value={settings.breakfastDeduction || 5.60} onChange={e => setSettings({...settings, breakfastDeduction: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">ÜP ohne Beleg (€)</label>
-                            <input type="number" value={settings.overnightFlatrateWithoutReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithoutReceipt: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1">ÜP mit Beleg (€)</label>
-                            <input type="number" value={settings.overnightFlatrateWithReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithReceipt: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 mt-6 pt-4 border-t">
-                           <h4 className="font-semibold text-gray-700 mb-2">KI Schnittstelle</h4>
-                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Gemini API Key (Google)</label>
-                            <input type="password" value={settings.geminiApiKey || ''} onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} className="w-full p-2 border rounded bg-white shadow-inner" placeholder="AIzaSy..." />
-                          </div>
+                        <div className="grid grid-cols-1 mt-6 pt-4 border-t dark:border-gray-700">
+                           <h4 className="font-semibold mb-2">KI Schnittstelle</h4>
+                           <div><input type="password" value={settings.geminiApiKey || ''} onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} className="w-full p-2 border rounded dark:bg-gray-900 dark:border-gray-600" placeholder="AIzaSy..." /></div>
                         </div>
                      </div>
                   </div>
