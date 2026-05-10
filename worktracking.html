@@ -1,0 +1,582 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { 
+  Calculator, 
+  Clock, 
+  CreditCard, 
+  Wallet, 
+  Settings, 
+  PlusCircle, 
+  List, 
+  Trash2, 
+  CheckCircle2, 
+  Camera,
+  Moon,
+  Coffee,
+  Car
+} from 'lucide-react';
+
+const DEFAULT_SETTINGS = {
+  initialZeitkonto: 0,
+  initialPersonalMoney: 0,
+  initialCreditCardDebt: 0,
+  dailyBaseHours: 7,
+  maxZeitkonto: 200,
+  hourlyRate: 25.54,
+  overtimeBonusPercent: 25,
+  overtimeBonusSpecialPercent: 50,
+  spesenSmallHours: 7,
+  spesenSmallAmount: 9,
+  spesenMediumHours: 9,
+  spesenMediumAmount: 14,
+  spesenLargeAmount: 28,
+  breakfastDeduction: 5.60,
+  overnightFlatrateWithoutReceipt: 30, // ⚠️ Unter Vorbehalt
+  overnightFlatrateWithReceipt: 30
+};
+
+const calculateDuration = (start, end, breakMinutes) => {
+  if (!start || !end) return 0;
+  const [startH, startM] = start.split(':').map(Number);
+  const [endH, endM] = end.split(':').map(Number);
+  
+  let durationMinutes = (endH * 60 + endM) - (startH * 60 + startM);
+  if (durationMinutes < 0) durationMinutes += 24 * 60; // Cross midnight
+  
+  durationMinutes -= (breakMinutes || 0);
+  return Math.max(0, durationMinutes / 60);
+};
+
+export default function SpesenTracker() {
+  // State
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [isScanning, setIsScanning] = useState(false);
+  const fileInputRef = useRef(null);
+  
+  const [settings, setSettings] = useState(() => {
+    const saved = localStorage.getItem('spesenSettings');
+    return saved ? JSON.parse(saved) : DEFAULT_SETTINGS;
+  });
+  
+  const [entries, setEntries] = useState(() => {
+    const saved = localStorage.getItem('spesenEntries');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Save to local storage on change
+  useEffect(() => {
+    localStorage.setItem('spesenSettings', JSON.stringify(settings));
+  }, [settings]);
+
+  useEffect(() => {
+    localStorage.setItem('spesenEntries', JSON.stringify(entries));
+  }, [entries]);
+
+  const stats = useMemo(() => {
+    let currentZeitkonto = Number(settings.initialZeitkonto || 0);
+    let totalPayout = 0; // Money paid out for overtime
+    let personalMoney = Number(settings.initialPersonalMoney || 0); // Spesen + Pauschalen
+    let creditCardDebt = Number(settings.initialCreditCardDebt || 0); // Vorgelegte Kosten
+
+    entries.forEach(entry => {
+      // 1. Time Calculations
+      if (entry.type === 'work') {
+        const overtime = Math.max(0, entry.duration - settings.dailyBaseHours);
+        
+        // Split overtime
+        let hoursToZeitkonto = 0;
+        let hoursToPayout = 0;
+
+        if (overtime > 0) {
+          // First 2 hours to Zeitkonto
+          const potentialZeitkonto = Math.min(2, overtime);
+          hoursToPayout = Math.max(0, overtime - 2);
+
+          // Check limits of Zeitkonto
+          if (currentZeitkonto + potentialZeitkonto > settings.maxZeitkonto) {
+            const allowedForKonto = Math.max(0, settings.maxZeitkonto - currentZeitkonto);
+            hoursToZeitkonto = allowedForKonto;
+            hoursToPayout += (potentialZeitkonto - allowedForKonto);
+          } else {
+            hoursToZeitkonto = potentialZeitkonto;
+          }
+        }
+
+        currentZeitkonto += hoursToZeitkonto;
+
+        // Calculate monetary payout for base hours (ab 3. Überstunde)
+        totalPayout += (hoursToPayout * settings.hourlyRate);
+
+        // Calculate Bonus (ausgezahlt ab der 2. Überstunde)
+        if (overtime > 1) {
+          const bonusEligibleHours = overtime - 1; 
+          const specialHours = Math.min(Number(entry.specialBonusHours || 0), bonusEligibleHours);
+          const standardHours = bonusEligibleHours - specialHours;
+
+          totalPayout += (standardHours * settings.hourlyRate * (settings.overtimeBonusPercent / 100));
+          totalPayout += (specialHours * settings.hourlyRate * ((settings.overtimeBonusSpecialPercent || 50) / 100));
+        }
+
+        // 2. Spesen Calculations
+        if (entry.duration >= 24) {
+          personalMoney += settings.spesenLargeAmount;
+        } else if (entry.duration >= (settings.spesenMediumHours || 9)) {
+          personalMoney += (settings.spesenMediumAmount || 14);
+        } else if (entry.duration >= settings.spesenSmallHours) {
+          personalMoney += settings.spesenSmallAmount;
+        }
+
+        // Frühstücksabzug
+        if (entry.breakfastIncluded) {
+          personalMoney -= (settings.breakfastDeduction || 5.60);
+        }
+
+        // 3. Overnight Flatrates
+        if (entry.overnight === 'hotel') {
+          personalMoney += settings.overnightFlatrateWithReceipt;
+        } else if (entry.overnight === 'private') {
+          personalMoney += settings.overnightFlatrateWithoutReceipt;
+        }
+
+        // 4. Expenses (Credit Card)
+        const hotelCost = Number(entry.hotelCost || 0);
+        const parkCost = Number(entry.parkCost || 0);
+        
+        creditCardDebt += (hotelCost + parkCost);
+      } else if (entry.type === 'abbummeln') {
+        currentZeitkonto -= entry.hours;
+      } else if (entry.type === 'cc_paid') {
+        creditCardDebt -= entry.amount;
+      }
+    });
+
+    return {
+      zeitkonto: currentZeitkonto.toFixed(2),
+      payout: totalPayout.toFixed(2),
+      personalMoney: personalMoney.toFixed(2),
+      creditCardDebt: creditCardDebt.toFixed(2)
+    };
+  }, [entries, settings]);
+
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    startTime: '08:00',
+    endTime: '16:15',
+    breakMinutes: 45,
+    specialBonusHours: 0, // Davon Stunden mit extra Zuschlag
+    overnight: 'none', // none, hotel, private
+    hotelCost: '',
+    parkCost: '',
+    breakfastIncluded: false
+  });
+
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const handleAddEntry = (e) => {
+    e.preventDefault();
+    const duration = calculateDuration(formData.startTime, formData.endTime, formData.breakMinutes);
+    
+    const newEntry = {
+      id: Date.now().toString(),
+      type: 'work',
+      duration,
+      ...formData
+    };
+
+    setEntries([newEntry, ...entries]);
+    // Reset costs but keep times
+    setFormData(prev => ({ ...prev, hotelCost: '', parkCost: '', overnight: 'none', specialBonusHours: 0 }));
+    setActiveTab('dashboard');
+  };
+
+  const deleteEntry = (id) => {
+    setEntries(entries.filter(e => e.id !== id));
+  };
+
+  const handleAbbummeln = () => {
+    const hours = parseFloat(prompt("Wie viele Stunden vom Zeitkonto abbummeln?"));
+    if (hours && hours > 0) {
+      setEntries([{ id: Date.now().toString(), type: 'abbummeln', date: new Date().toISOString().split('T')[0], hours }, ...entries]);
+    }
+  };
+
+  const handleCCPaid = () => {
+    const amount = parseFloat(prompt("Welcher Betrag wurde von der Kreditkarte abgebucht?"));
+    if (amount && amount > 0) {
+      setEntries([{ id: Date.now().toString(), type: 'cc_paid', date: new Date().toISOString().split('T')[0], amount }, ...entries]);
+    }
+  };
+
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = reader.result.split(',')[1];
+        const payload = {
+          contents: [{
+            role: "user",
+            parts: [
+              { text: "Lese die Daten aus dem Timesheet aus und antworte NUR mit JSON: { \"date\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"breakMinutes\": Zahl (Standard 45), \"hotelCost\": Zahl, \"parkCost\": Zahl }. Keine Markdown Blöcke, nur pures JSON." },
+              { inlineData: { mimeType: file.type, data: base64Data } }
+            ]
+          }],
+          generationConfig: { responseMimeType: "application/json" }
+        };
+        
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-preview:generateContent?key=`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) throw new Error("API Error");
+        
+        const result = await response.json();
+        const jsonText = result.candidates[0].content.parts[0].text;
+        const data = JSON.parse(jsonText);
+        
+        setFormData(prev => ({
+          ...prev,
+          date: data.date || prev.date,
+          startTime: data.startTime || prev.startTime,
+          endTime: data.endTime || prev.endTime,
+          breakMinutes: data.breakMinutes !== undefined ? data.breakMinutes : 45,
+          hotelCost: data.hotelCost || prev.hotelCost,
+          parkCost: data.parkCost || prev.parkCost
+        }));
+        setIsScanning(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      console.error("AI Scan fehlgeschlagen", error);
+      setIsScanning(false);
+    }
+  };
+
+
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
+      {/* Navigation */}
+      <nav className="bg-blue-900 text-white p-4 shadow-md sticky top-0 z-10">
+        <div className="max-w-4xl mx-auto flex justify-between items-center">
+          <h1 className="text-xl font-bold flex items-center gap-2">
+            <Wallet className="w-6 h-6" /> Track & Travel
+          </h1>
+          <div className="flex gap-4">
+             <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><Calculator className="w-5 h-5"/></button>
+             <button onClick={() => setActiveTab('track')} className={`p-2 rounded ${activeTab === 'track' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><PlusCircle className="w-5 h-5"/></button>
+             <button onClick={() => setActiveTab('history')} className={`p-2 rounded ${activeTab === 'history' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><List className="w-5 h-5"/></button>
+             <button onClick={() => setActiveTab('settings')} className={`p-2 rounded ${activeTab === 'settings' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><Settings className="w-5 h-5"/></button>
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-4xl mx-auto p-4 py-8">
+        
+        {}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold text-gray-800">Deine Übersicht</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Zeitkonto Card */}
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center">
+                <Clock className="w-10 h-10 text-blue-500 mb-2" />
+                <h3 className="text-gray-500 font-medium">Zeitkonto</h3>
+                <div className="text-4xl font-bold text-gray-800 my-2">
+                  {stats.zeitkonto} <span className="text-xl text-gray-400 font-normal">/ {settings.maxZeitkonto}h</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                  <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${Math.min(100, (stats.zeitkonto / settings.maxZeitkonto) * 100)}%` }}></div>
+                </div>
+                <button onClick={handleAbbummeln} className="mt-4 text-sm text-blue-600 hover:underline">Stunden abbummeln</button>
+              </div>
+
+              {/* Payout Card */}
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center">
+                <Wallet className="w-10 h-10 text-emerald-500 mb-2" />
+                <h3 className="text-gray-500 font-medium">Mein Spesenkonto (Gehört mir)</h3>
+                <div className="text-4xl font-bold text-emerald-600 my-2">
+                  {stats.personalMoney} €
+                </div>
+                <p className="text-xs text-gray-400">Pauschalen & Verpflegungsmehraufwand</p>
+                <div className="mt-4 pt-4 border-t border-gray-100 w-full">
+                   <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Ausbezahlte Überstunden/Boni:</span>
+                      <span className="font-bold text-gray-700">{stats.payout} €</span>
+                   </div>
+                </div>
+              </div>
+
+              {/* CC Debt Card */}
+              <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center md:col-span-2">
+                <CreditCard className="w-10 h-10 text-red-500 mb-2" />
+                <h3 className="text-gray-500 font-medium">Offen bei Kreditkarte</h3>
+                <div className="text-4xl font-bold text-red-600 my-2">
+                  {stats.creditCardDebt} €
+                </div>
+                <p className="text-xs text-gray-400 mb-4">Dieses Geld streckst du aktuell vor.</p>
+                <button onClick={handleCCPaid} className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg text-sm transition-colors">
+                  Kreditkarten-Abrechnung bezahlt
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {}
+        {activeTab === 'track' && (
+          <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+            <div className="p-6 bg-blue-50 border-b border-blue-100 flex justify-between items-center">
+              <div>
+                <h2 className="text-xl font-bold text-blue-900">Neuer Eintrag</h2>
+                <p className="text-sm text-blue-700">Erfasse Arbeitszeit und Auslagen</p>
+              </div>
+              <div>
+                <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                <button 
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()} 
+                  disabled={isScanning}
+                  className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4"/> {isScanning ? 'Scannt...' : 'KI Scan'}
+                </button>
+              </div>
+            </div>
+            
+            <form onSubmit={handleAddEntry} className="p-6 space-y-6">
+              {/* Time Section */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><Clock className="w-4 h-4"/> Arbeitszeit</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Datum</label>
+                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Pause (Minuten)</label>
+                    <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" min="0" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Startzeit</label>
+                    <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Endzeit</label>
+                    <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Davon Std. mit 50% Zuschlag</label>
+                    <input type="number" step="0.25" min="0" name="specialBonusHours" value={formData.specialBonusHours} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="z.B. 1.5" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Expenses Section */}
+              <div className="space-y-4">
+                <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><Moon className="w-4 h-4"/> Reise & Übernachtung</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="col-span-1 md:col-span-3">
+                    <label className="block text-sm text-gray-600 mb-2">Übernachtung</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2">
+                        <input type="radio" name="overnight" value="none" checked={formData.overnight === 'none'} onChange={handleInputChange} /> Keine
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="radio" name="overnight" value="hotel" checked={formData.overnight === 'hotel'} onChange={handleInputChange} /> Hotel (mit Beleg)
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <input type="radio" name="overnight" value="private" checked={formData.overnight === 'private'} onChange={handleInputChange} /> Privat (ohne Beleg)
+                      </label>
+                    </div>
+                  </div>
+
+                  {formData.overnight === 'hotel' && (
+                    <>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Hotelkosten (€)</label>
+                        <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                      </div>
+                      <div className="flex items-end pb-2">
+                         <label className="flex items-center gap-2 text-sm text-gray-600">
+                          <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded" /> <Coffee className="w-4 h-4"/> inkl. Frühstück
+                        </label>
+                      </div>
+                    </>
+                  )}
+                  
+                  <div className={formData.overnight === 'hotel' ? "" : "col-span-3 md:col-span-1"}>
+                    <label className="block text-sm text-gray-600 mb-1">Parkkosten (€)</label>
+                    <div className="relative">
+                       <Car className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                       <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-2 pl-9 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
+                <CheckCircle2 className="w-5 h-5"/> Eintrag speichern
+              </button>
+            </form>
+          </div>
+        )}
+
+        {}
+        {activeTab === 'history' && (
+          <div className="bg-white rounded-xl shadow overflow-hidden">
+             <div className="p-6 border-b border-gray-100">
+                <h2 className="text-xl font-bold text-gray-800">Verlauf</h2>
+             </div>
+             <div className="overflow-x-auto">
+               <table className="w-full text-left border-collapse">
+                 <thead>
+                   <tr className="bg-gray-50 text-gray-500 text-sm border-b">
+                     <th className="p-4">Datum</th>
+                     <th className="p-4">Typ</th>
+                     <th className="p-4">Details</th>
+                     <th className="p-4 text-right">Aktion</th>
+                   </tr>
+                 </thead>
+                 <tbody>
+                   {entries.length === 0 ? (
+                     <tr><td colSpan="4" className="p-4 text-center text-gray-400">Keine Einträge vorhanden</td></tr>
+                   ) : entries.map(entry => (
+                     <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50">
+                       <td className="p-4">{new Date(entry.date).toLocaleDateString('de-DE')}</td>
+                       <td className="p-4">
+                         {entry.type === 'work' && <span className="bg-blue-100 text-blue-700 py-1 px-2 rounded text-xs">Arbeitstag</span>}
+                         {entry.type === 'abbummeln' && <span className="bg-orange-100 text-orange-700 py-1 px-2 rounded text-xs">Abfeiern</span>}
+                         {entry.type === 'cc_paid' && <span className="bg-green-100 text-green-700 py-1 px-2 rounded text-xs">Kreditkarte Bezahlt</span>}
+                       </td>
+                       <td className="p-4 text-sm text-gray-600">
+                         {entry.type === 'work' && (
+                           <div>
+                             {entry.duration.toFixed(2)}h ({entry.startTime} - {entry.endTime})
+                             {entry.hotelCost > 0 && <span className="ml-2 text-red-500">Hotel: {entry.hotelCost}€</span>}
+                           </div>
+                         )}
+                         {entry.type === 'abbummeln' && `-${entry.hours}h vom Zeitkonto`}
+                         {entry.type === 'cc_paid' && `${entry.amount}€ abgebucht`}
+                       </td>
+                       <td className="p-4 text-right">
+                         <button onClick={() => deleteEntry(entry.id)} className="text-red-400 hover:text-red-600 p-2"><Trash2 className="w-4 h-4"/></button>
+                       </td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+             </div>
+          </div>
+        )}
+
+        {}
+        {activeTab === 'settings' && (
+          <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto space-y-6">
+             <h2 className="text-xl font-bold text-gray-800 border-b pb-2">Regeln & Parameter</h2>
+             
+             <div className="space-y-4">
+                <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-4">
+                  Pass hier die Werte an, damit die App exakt zu deinem Arbeitsvertrag passt. Alle Berechnungen im Dashboard updaten sich sofort!
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Basis-Stunden/Tag</label>
+                    <input type="number" value={settings.dailyBaseHours} onChange={e => setSettings({...settings, dailyBaseHours: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Stundenlohn (€)</label>
+                    <input type="number" value={settings.hourlyRate} onChange={e => setSettings({...settings, hourlyRate: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  
+                  <div className="col-span-2 border-t pt-2 mt-2">
+                    <h4 className="font-semibold text-gray-700 mb-2">Aktuelle Startwerte (Heute)</h4>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Zeitkonto (h)</label>
+                    <input type="number" step="0.1" value={settings.initialZeitkonto || 0} onChange={e => setSettings({...settings, initialZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded border-blue-300 bg-blue-50" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Spesenkonto (€)</label>
+                    <input type="number" step="0.01" value={settings.initialPersonalMoney || 0} onChange={e => setSettings({...settings, initialPersonalMoney: Number(e.target.value)})} className="w-full p-2 border rounded border-emerald-300 bg-emerald-50" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Kreditkarte Offen (€)</label>
+                    <input type="number" step="0.01" value={settings.initialCreditCardDebt || 0} onChange={e => setSettings({...settings, initialCreditCardDebt: Number(e.target.value)})} className="w-full p-2 border rounded border-red-300 bg-red-50" />
+                  </div>
+
+                  <div className="col-span-2 border-t pt-2 mt-2">
+                    <h4 className="font-semibold text-gray-700 mb-2">Regeln & Boni</h4>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Max. Zeitkonto (h)</label>
+                    <input type="number" value={settings.maxZeitkonto} onChange={e => setSettings({...settings, maxZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Bonus Standard (%)</label>
+                    <input type="number" value={settings.overtimeBonusPercent} onChange={e => setSettings({...settings, overtimeBonusPercent: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Bonus Nacht/Sonder (%)</label>
+                    <input type="number" value={settings.overtimeBonusSpecialPercent || 50} onChange={e => setSettings({...settings, overtimeBonusSpecialPercent: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                </div>
+
+                <h3 className="font-semibold text-gray-700 mt-6 pt-4 border-t">Spesen & Pauschalen</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Kleine Spesen (ab Std.)</label>
+                    <input type="number" value={settings.spesenSmallHours} onChange={e => setSettings({...settings, spesenSmallHours: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Betrag Kleine Spesen (€)</label>
+                    <input type="number" value={settings.spesenSmallAmount} onChange={e => setSettings({...settings, spesenSmallAmount: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Große Spesen (ab Std.)</label>
+                    <input type="number" value={settings.spesenMediumHours || 9} onChange={e => setSettings({...settings, spesenMediumHours: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Betrag Große Spesen (€)</label>
+                    <input type="number" value={settings.spesenMediumAmount || 14} onChange={e => setSettings({...settings, spesenMediumAmount: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">24h Spesen (€)</label>
+                    <input type="number" value={settings.spesenLargeAmount} onChange={e => setSettings({...settings, spesenLargeAmount: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">Frühstück-Abzug (€)</label>
+                    <input type="number" step="0.01" value={settings.breakfastDeduction || 5.60} onChange={e => setSettings({...settings, breakfastDeduction: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">ÜP ohne Beleg (€)</label>
+                    <div className="relative">
+                      <input type="number" value={settings.overnightFlatrateWithoutReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithoutReceipt: Number(e.target.value)})} className="w-full p-2 border rounded border-orange-300" />
+                      <span className="absolute -top-5 right-0 text-xs text-orange-500 font-bold">⚠️ Prüfen!</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">ÜP mit Beleg (€)</label>
+                    <input type="number" value={settings.overnightFlatrateWithReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithReceipt: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                  </div>
+                </div>
+             </div>
+          </div>
+        )}
+
+      </main>
+    </div>
+  );
+}
