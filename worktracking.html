@@ -17,6 +17,19 @@
 
     <!-- FontAwesome für Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* Spezielle Druck-Stile für den PDF/A4 Export */
+        @media print {
+            body { background-color: white; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .print-container { max-width: 100% !important; padding: 0 !important; margin: 0 !important; box-shadow: none !important; border: none !important; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 12px; }
+            th { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; }
+        }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans">
     <div id="root"></div>
@@ -81,9 +94,10 @@
 
           const stats = useMemo(() => {
             let currentZeitkonto = Number(settings.initialZeitkonto || 0);
-            let totalPayout = 0; // Money paid out for overtime
-            let personalMoney = Number(settings.initialPersonalMoney || 0); // Spesen + Pauschalen
+            let totalPayout = 0; // Money paid out for overtime (Girokonto)
+            let personalMoney = Number(settings.initialPersonalMoney || 0); // Spesen + Pauschalen (Spesenkonto C24)
             let creditCardDebt = Number(settings.initialCreditCardDebt || 0); // Vorgelegte Kosten
+            let auslagenErstattung = 0; // Das Geld, das aufs Spesenkonto zurückfließt (Hotel, Parken, Sonstiges)
 
             entries.forEach(entry => {
               // 1. Time Calculations
@@ -117,7 +131,7 @@
                   hoursToZeitkonto += k2;
                   spaceLeft -= k2;
                   baseHoursToPayout += p2;
-                  bonus25Hours += h2; // H2 statt P2: Bonus wird auf die volle 2. Stunde gezahlt
+                  bonus25Hours += h2; // Bonus wird auf die volle 2. Stunde gezahlt
 
                   // Ab der 3. Überstunde (Wird immer komplett ausgezahlt mit 50%)
                   const h3 = Math.max(0, overtime - 2);
@@ -127,24 +141,16 @@
 
                 currentZeitkonto += hoursToZeitkonto;
 
-                // Calculate monetary payout for base hours
+                // Calculate monetary payout for base hours -> Geht aufs Girokonto
                 totalPayout += (baseHoursToPayout * settings.hourlyRate);
 
-                // Calculate Bonus
+                // Calculate Bonus -> Geht aufs Girokonto
                 if (overtime > 0) {
-                  // Manuelle Nachtzulage überschreibt 25% Stunden zu 50% Stunden
-                  const manualSpecial = Number(entry.specialBonusHours || 0);
-                  if (manualSpecial > 0) {
-                    const upgradeHours = Math.min(manualSpecial, bonus25Hours);
-                    bonus25Hours -= upgradeHours;
-                    bonus50Hours += upgradeHours;
-                  }
-
                   totalPayout += (bonus25Hours * settings.hourlyRate * (settings.overtimeBonusPercent / 100));
                   totalPayout += (bonus50Hours * settings.hourlyRate * ((settings.overtimeBonusSpecialPercent || 50) / 100));
                 }
 
-                // 2. Spesen Calculations (Basierend auf Abwesenheit inkl. Pause)
+                // 2. Spesen Calculations (Basierend auf Abwesenheit inkl. Pause) -> Geht aufs Spesenkonto
                 const durationGross = calculateDuration(entry.startTime, entry.endTime, 0);
                 
                 if (durationGross >= 24) {
@@ -158,18 +164,25 @@
                   personalMoney -= (settings.breakfastDeduction || 5.60);
                 }
 
-                // 3. Overnight Flatrates
-                if (entry.overnight === 'hotel') {
+                // 3. Overnight Flatrates -> Geht aufs Spesenkonto
+                if (entry.overnight === 'receipt') {
                   personalMoney += settings.overnightFlatrateWithReceipt;
-                } else if (entry.overnight === 'private') {
+                } else if (entry.overnight === 'noreceipt') {
                   personalMoney += settings.overnightFlatrateWithoutReceipt;
                 }
 
-                // 4. Expenses (Credit Card)
+                // 4. Expenses (Credit Card & Rückerstattung aufs Spesenkonto)
                 const hotelCost = Number(entry.hotelCost || 0);
                 const parkCost = Number(entry.parkCost || 0);
+                const sonstigesCost = Number(entry.sonstigesCost || 0);
                 
-                creditCardDebt += (hotelCost + parkCost);
+                const totalAuslagen = hotelCost + parkCost + sonstigesCost;
+                
+                // Wir schulden der KK dieses Geld
+                creditCardDebt += totalAuslagen;
+                // Die Firma überweist uns diese Auslagen aber zurück aufs Spesenkonto
+                auslagenErstattung += totalAuslagen;
+
               } else if (entry.type === 'abbummeln') {
                 currentZeitkonto -= entry.hours;
               } else if (entry.type === 'cc_paid') {
@@ -177,10 +190,13 @@
               }
             });
 
+            // Das gesamte Guthaben auf dem Spesenkonto ist: Echte Spesen + zurückgezahlte Auslagen
+            const totalSpesenkonto = personalMoney + auslagenErstattung;
+
             return {
               zeitkonto: currentZeitkonto.toFixed(2),
               payout: totalPayout.toFixed(2),
-              personalMoney: personalMoney.toFixed(2),
+              spesenkonto: totalSpesenkonto.toFixed(2),
               creditCardDebt: creditCardDebt.toFixed(2)
             };
           }, [entries, settings]);
@@ -190,10 +206,10 @@
             startTime: '08:00',
             endTime: '16:15',
             breakMinutes: 45,
-            specialBonusHours: 0,
             overnight: 'none',
             hotelCost: '',
             parkCost: '',
+            sonstigesCost: '',
             breakfastIncluded: false
           });
 
@@ -217,12 +233,14 @@
             };
 
             setEntries([newEntry, ...entries]);
-            setFormData(prev => ({ ...prev, hotelCost: '', parkCost: '', overnight: 'none', specialBonusHours: 0 }));
+            setFormData(prev => ({ ...prev, hotelCost: '', parkCost: '', sonstigesCost: '', overnight: 'none', breakfastIncluded: false }));
             setActiveTab('dashboard');
           };
 
           const deleteEntry = (id) => {
-            setEntries(entries.filter(e => e.id !== id));
+            if(window.confirm("Eintrag wirklich löschen?")) {
+               setEntries(entries.filter(e => e.id !== id));
+            }
           };
 
           const handleAbbummeln = () => {
@@ -239,6 +257,63 @@
             }
           };
 
+          // --- Export / Import Funktionen ---
+          const exportJSON = () => {
+             const dataStr = JSON.stringify({ settings, entries });
+             const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+             const exportFileDefaultName = `TrackTravel_Backup_${new Date().toISOString().split('T')[0]}.json`;
+             const linkElement = document.createElement('a');
+             linkElement.setAttribute('href', dataUri);
+             linkElement.setAttribute('download', exportFileDefaultName);
+             linkElement.click();
+          };
+
+          const importJSON = (e) => {
+             const file = e.target.files[0];
+             if (!file) return;
+             const reader = new FileReader();
+             reader.onload = (event) => {
+                try {
+                   const data = JSON.parse(event.target.result);
+                   if(data.settings) setSettings(data.settings);
+                   if(data.entries) setEntries(data.entries);
+                   alert("Daten erfolgreich importiert!");
+                } catch(err) {
+                   alert("Fehler beim Lesen der Datei. Ist es ein gültiges Backup?");
+                }
+             };
+             reader.readAsText(file);
+          };
+
+          const exportCSV = () => {
+             let csvContent = "data:text/csv;charset=utf-8,";
+             csvContent += "Datum,Typ,Dauer(h),Start,Ende,Pause(Min),Hotel(€),Parken(€),Sonstiges(€),Übernachtungs-Typ\n";
+             
+             entries.forEach(e => {
+                const row = [
+                   e.date,
+                   e.type,
+                   e.duration ? e.duration.toFixed(2) : (e.hours ? `-${e.hours}` : ''),
+                   e.startTime || '',
+                   e.endTime || '',
+                   e.breakMinutes || '',
+                   e.hotelCost || '',
+                   e.parkCost || '',
+                   e.sonstigesCost || '',
+                   e.overnight || ''
+                ].join(",");
+                csvContent += row + "\n";
+             });
+
+             const encodedUri = encodeURI(csvContent);
+             const link = document.createElement("a");
+             link.setAttribute("href", encodedUri);
+             link.setAttribute("download", `Zeiten_Spesen_${new Date().toISOString().split('T')[0]}.csv`);
+             document.body.appendChild(link);
+             link.click();
+          };
+
+          // KI Scan Feature
           const handleFileUpload = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
@@ -297,27 +372,27 @@
           };
 
           return (
-            <div className="min-h-screen pb-10">
+            <div className="min-h-screen pb-10 bg-gray-50">
               {/* Navigation */}
-              <nav className="bg-blue-900 text-white p-4 shadow-md sticky top-0 z-10">
+              <nav className="bg-blue-900 text-white p-4 shadow-md sticky top-0 z-10 no-print">
                 <div className="max-w-4xl mx-auto flex justify-between items-center">
                   <h1 className="text-xl font-bold flex items-center gap-2">
-                    <i className="fa-solid fa-wallet text-xl"></i> Track & Travel
+                    <i className="fa-solid fa-truck-fast text-xl"></i> Track & Travel
                   </h1>
-                  <div className="flex gap-4">
-                     <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><i className="fa-solid fa-calculator text-xl"></i></button>
-                     <button onClick={() => setActiveTab('track')} className={`p-2 rounded ${activeTab === 'track' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><i className="fa-solid fa-circle-plus text-xl"></i></button>
-                     <button onClick={() => setActiveTab('history')} className={`p-2 rounded ${activeTab === 'history' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><i className="fa-solid fa-list text-xl"></i></button>
-                     <button onClick={() => setActiveTab('settings')} className={`p-2 rounded ${activeTab === 'settings' ? 'bg-blue-800' : 'hover:bg-blue-800'}`}><i className="fa-solid fa-gear text-xl"></i></button>
+                  <div className="flex gap-2 sm:gap-4">
+                     <button onClick={() => setActiveTab('dashboard')} className={`p-2 rounded ${activeTab === 'dashboard' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Dashboard"><i className="fa-solid fa-chart-pie text-xl"></i></button>
+                     <button onClick={() => setActiveTab('track')} className={`p-2 rounded ${activeTab === 'track' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Neuer Eintrag"><i className="fa-solid fa-circle-plus text-xl"></i></button>
+                     <button onClick={() => setActiveTab('history')} className={`p-2 rounded ${activeTab === 'history' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Verlauf"><i className="fa-solid fa-book-open text-xl"></i></button>
+                     <button onClick={() => setActiveTab('settings')} className={`p-2 rounded ${activeTab === 'settings' ? 'bg-blue-800' : 'hover:bg-blue-800'}`} title="Einstellungen"><i className="fa-solid fa-gear text-xl"></i></button>
                   </div>
                 </div>
               </nav>
 
-              <main className="max-w-4xl mx-auto p-4 py-8">
+              <main className="max-w-4xl mx-auto p-4 py-8 print-container">
                 
                 {activeTab === 'dashboard' && (
                   <div className="space-y-6">
-                    <h2 className="text-2xl font-bold text-gray-800">Deine Übersicht</h2>
+                    <h2 className="text-2xl font-bold text-gray-800 border-b pb-2">Konten & Übersicht</h2>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {/* Zeitkonto Card */}
@@ -330,35 +405,46 @@
                         <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
                           <div className="bg-blue-500 h-2.5 rounded-full" style={{ width: `${Math.min(100, (stats.zeitkonto / settings.maxZeitkonto) * 100)}%` }}></div>
                         </div>
-                        <button onClick={handleAbbummeln} className="mt-4 text-sm text-blue-600 hover:underline">Stunden abbummeln</button>
+                        <button onClick={handleAbbummeln} className="mt-4 text-sm text-blue-600 hover:underline"><i className="fa-solid fa-minus-circle"></i> Stunden abbummeln</button>
                       </div>
 
-                      {/* Payout Card */}
+                      {/* Girokonto Card */}
                       <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center">
-                        <i className="fa-solid fa-wallet text-4xl text-emerald-500 mb-2"></i>
-                        <h3 className="text-gray-500 font-medium">Mein Spesenkonto (Gehört mir)</h3>
+                        <i className="fa-solid fa-building-columns text-4xl text-emerald-500 mb-2"></i>
+                        <h3 className="text-gray-500 font-medium">Girokonto / Lohn</h3>
                         <div className="text-4xl font-bold text-emerald-600 my-2">
-                          {stats.personalMoney} €
+                          + {stats.payout} €
                         </div>
-                        <p className="text-xs text-gray-400">Pauschalen & Verpflegungsmehraufwand</p>
-                        <div className="mt-4 pt-4 border-t border-gray-100 w-full">
-                           <div className="flex justify-between text-sm">
-                              <span className="text-gray-500">Ausbezahlte Überstunden/Boni:</span>
-                              <span className="font-bold text-gray-700">{stats.payout} €</span>
-                           </div>
+                        <p className="text-xs text-gray-400">Ausbezahlte Überstunden & Boni</p>
+                      </div>
+
+                      {/* Spesenkonto (C24) Card */}
+                      <div className="bg-white p-6 rounded-xl shadow border-l-4 border-l-blue-400 flex flex-col items-center text-center md:col-span-2">
+                        <div className="flex items-center justify-center gap-3 mb-2">
+                            <i className="fa-solid fa-wallet text-3xl text-blue-600"></i>
+                            <h3 className="text-gray-600 font-bold text-lg">Spesenkonto (C24 Bank)</h3>
                         </div>
+                        <div className="text-5xl font-bold text-blue-700 my-2">
+                          {stats.spesenkonto} €
+                        </div>
+                        <p className="text-sm text-gray-500 max-w-lg mx-auto">
+                          Dieses Geld gehört auf dein separates Spesenkonto. Es beinhaltet deine <b>Verpflegungspauschalen</b>, <b>Übernachtungspauschalen</b> sowie die <b>Rückerstattung deiner vorgestreckten Auslagen</b>.
+                        </p>
                       </div>
 
                       {/* CC Debt Card */}
                       <div className="bg-white p-6 rounded-xl shadow border border-gray-100 flex flex-col items-center text-center md:col-span-2">
-                        <i className="fa-solid fa-credit-card text-4xl text-red-500 mb-2"></i>
-                        <h3 className="text-gray-500 font-medium">Offen bei Kreditkarte</h3>
-                        <div className="text-4xl font-bold text-red-600 my-2">
-                          {stats.creditCardDebt} €
+                        <div className="flex justify-between w-full items-center mb-4">
+                           <div className="flex items-center gap-2">
+                               <i className="fa-solid fa-credit-card text-2xl text-red-500"></i>
+                               <h3 className="text-gray-600 font-medium text-left">Vorgestreckte Auslagen<br/><span className="text-xs text-gray-400">Noch offene Rechnungen der Kreditkarte</span></h3>
+                           </div>
+                           <div className="text-3xl font-bold text-red-500">
+                             - {stats.creditCardDebt} €
+                           </div>
                         </div>
-                        <p className="text-xs text-gray-400 mb-4">Dieses Geld streckst du aktuell vor.</p>
-                        <button onClick={handleCCPaid} className="bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 px-4 rounded-lg text-sm transition-colors">
-                          Kreditkarten-Abrechnung bezahlt
+                        <button onClick={handleCCPaid} className="w-full bg-red-50 hover:bg-red-100 text-red-700 font-semibold py-3 px-4 rounded-lg text-sm transition-colors border border-red-200">
+                          <i className="fa-solid fa-check-double"></i> Kreditkarten-Abrechnung wurde vom Konto abgebucht
                         </button>
                       </div>
                     </div>
@@ -378,55 +464,58 @@
                           type="button"
                           onClick={() => fileInputRef.current?.click()} 
                           disabled={isScanning}
-                          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 shadow"
                         >
                           <i className="fa-solid fa-camera"></i> {isScanning ? 'Scannt...' : 'KI Scan'}
                         </button>
                       </div>
                     </div>
                     
-                    <form onSubmit={handleAddEntry} className="p-6 space-y-6">
+                    <form onSubmit={handleAddEntry} className="p-6 space-y-8">
                       <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-clock"></i> Arbeitszeit</h3>
+                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-clock text-blue-500"></i> Arbeitszeit</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Datum</label>
-                            <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required />
+                            <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Pause (Minuten)</label>
-                            <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" min="0" required />
+                            <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" min="0" required />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Startzeit</label>
-                            <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required />
+                            <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Endzeit</label>
-                            <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" required />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 mb-1" title="Ab der 3. Überstunde werden 50% automatisch berechnet!">Manuelle Nachtzulage (Std. mit 50%)</label>
-                            <input type="number" step="0.25" min="0" name="specialBonusHours" value={formData.specialBonusHours} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="z.B. 1.5" />
+                            <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" required />
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-moon"></i> Reise & Übernachtung</h3>
+                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-bed text-indigo-500"></i> Reise & Übernachtung</h3>
                         
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div className="col-span-1 md:col-span-3">
-                            <label className="block text-sm text-gray-600 mb-2">Übernachtung</label>
-                            <div className="flex gap-4">
-                              <label className="flex items-center gap-2">
-                                <input type="radio" name="overnight" value="none" checked={formData.overnight === 'none'} onChange={handleInputChange} /> Keine
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="col-span-1 md:col-span-2">
+                            <label className="block text-sm text-gray-600 mb-3">Übernachtungsart auswählen:</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'none' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                                <input type="radio" name="overnight" value="none" checked={formData.overnight === 'none'} onChange={handleInputChange} className="hidden" /> 
+                                <i className="fa-solid fa-house text-gray-400 block mb-1"></i> Keine
                               </label>
-                              <label className="flex items-center gap-2">
-                                <input type="radio" name="overnight" value="hotel" checked={formData.overnight === 'hotel'} onChange={handleInputChange} /> Hotel (mit Beleg)
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'hotel' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                                <input type="radio" name="overnight" value="hotel" checked={formData.overnight === 'hotel'} onChange={handleInputChange} className="hidden" /> 
+                                <i className="fa-solid fa-bell-concierge text-indigo-400 block mb-1"></i> Hotelbuchung
                               </label>
-                              <label className="flex items-center gap-2">
-                                <input type="radio" name="overnight" value="private" checked={formData.overnight === 'private'} onChange={handleInputChange} /> Privat (ohne Beleg)
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'receipt' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                                <input type="radio" name="overnight" value="receipt" checked={formData.overnight === 'receipt'} onChange={handleInputChange} className="hidden" /> 
+                                <i className="fa-solid fa-file-invoice text-emerald-400 block mb-1"></i> ÜP mit Beleg
+                              </label>
+                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'noreceipt' ? 'bg-blue-50 border-blue-500 shadow-sm' : 'hover:bg-gray-50'}`}>
+                                <input type="radio" name="overnight" value="noreceipt" checked={formData.overnight === 'noreceipt'} onChange={handleInputChange} className="hidden" /> 
+                                <i className="fa-solid fa-user-group text-orange-400 block mb-1"></i> ÜP ohne Beleg
                               </label>
                             </div>
                           </div>
@@ -435,74 +524,124 @@
                             <React.Fragment>
                               <div>
                                 <label className="block text-sm text-gray-600 mb-1">Hotelkosten (€)</label>
-                                <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                                <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
                               </div>
-                              <div className="flex items-end pb-2">
-                                 <label className="flex items-center gap-2 text-sm text-gray-600">
-                                  <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded" /> <i className="fa-solid fa-mug-hot"></i> inkl. Frühstück
+                              <div className="flex items-center pb-2">
+                                 <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer bg-gray-100 p-3 rounded-lg border w-full hover:bg-gray-200">
+                                  <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded w-4 h-4" /> <i className="fa-solid fa-mug-hot text-amber-600"></i> inkl. Frühstück (-5,60€)
                                 </label>
                               </div>
                             </React.Fragment>
                           )}
-                          
-                          <div className={formData.overnight === 'hotel' ? "" : "col-span-3 md:col-span-1"}>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <h3 className="font-semibold text-gray-700 border-b pb-2 flex items-center gap-2"><i className="fa-solid fa-receipt text-red-500"></i> Weitere Auslagen</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
                             <label className="block text-sm text-gray-600 mb-1">Parkkosten (€)</label>
                             <div className="relative">
-                               <i className="fa-solid fa-car absolute left-3 top-3 text-gray-400"></i>
-                               <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-2 pl-9 border rounded focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                               <i className="fa-solid fa-square-parking absolute left-4 top-4 text-gray-400"></i>
+                               <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-3 pl-11 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm text-gray-600 mb-1">Sonstiges (Leihwagen, Maut etc.) (€)</label>
+                            <div className="relative">
+                               <i className="fa-solid fa-car absolute left-4 top-4 text-gray-400"></i>
+                               <input type="number" step="0.01" name="sonstigesCost" value={formData.sonstigesCost} onChange={handleInputChange} className="w-full p-3 pl-11 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" placeholder="0.00" />
                             </div>
                           </div>
                         </div>
                       </div>
 
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2">
-                        <i className="fa-solid fa-circle-check text-xl"></i> Eintrag speichern
+                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-lg shadow-lg">
+                        <i className="fa-solid fa-floppy-disk text-xl"></i> Eintrag im Logbuch speichern
                       </button>
                     </form>
                   </div>
                 )}
 
                 {activeTab === 'history' && (
-                  <div className="bg-white rounded-xl shadow overflow-hidden">
-                     <div className="p-6 border-b border-gray-100">
-                        <h2 className="text-xl font-bold text-gray-800">Verlauf</h2>
+                  <div className="bg-white rounded-xl shadow overflow-hidden print-container">
+                     <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                        <h2 className="text-xl font-bold text-gray-800"><i className="fa-solid fa-book-open text-blue-600 mr-2"></i> Logbuch & Verlauf</h2>
+                        <div className="flex gap-2 no-print">
+                           <button onClick={exportCSV} className="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm shadow-sm">
+                             <i className="fa-solid fa-file-csv text-green-600"></i> CSV
+                           </button>
+                           <button onClick={() => window.print()} className="bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 px-3 py-1.5 rounded flex items-center gap-2 text-sm shadow-sm">
+                             <i className="fa-solid fa-print text-gray-600"></i> Drucken
+                           </button>
+                        </div>
                      </div>
                      <div className="overflow-x-auto">
                        <table className="w-full text-left border-collapse">
                          <thead>
-                           <tr className="bg-gray-50 text-gray-500 text-sm border-b">
-                             <th className="p-4">Datum</th>
-                             <th className="p-4">Typ</th>
-                             <th className="p-4">Details</th>
-                             <th className="p-4 text-right">Aktion</th>
+                           <tr className="bg-gray-100 text-gray-600 text-sm border-b">
+                             <th className="p-3">Datum</th>
+                             <th className="p-3">Zeiten / Dauer</th>
+                             <th className="p-3">Auslagen (Hotel/Park/Sonst)</th>
+                             <th className="p-3">Übernachtung</th>
+                             <th className="p-3 no-print text-right">Aktion</th>
                            </tr>
                          </thead>
                          <tbody>
                            {entries.length === 0 ? (
-                             <tr><td colSpan="4" className="p-4 text-center text-gray-400">Keine Einträge vorhanden</td></tr>
-                           ) : entries.map(entry => (
-                             <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50">
-                               <td className="p-4">{new Date(entry.date).toLocaleDateString('de-DE')}</td>
-                               <td className="p-4">
-                                 {entry.type === 'work' && <span className="bg-blue-100 text-blue-700 py-1 px-2 rounded text-xs">Arbeitstag</span>}
-                                 {entry.type === 'abbummeln' && <span className="bg-orange-100 text-orange-700 py-1 px-2 rounded text-xs">Abfeiern</span>}
-                                 {entry.type === 'cc_paid' && <span className="bg-green-100 text-green-700 py-1 px-2 rounded text-xs">Kreditkarte Bezahlt</span>}
+                             <tr><td colSpan="5" className="p-8 text-center text-gray-400">Keine Einträge vorhanden</td></tr>
+                           ) : entries.map(entry => {
+                             // Berechne Summe der Auslagen für diesen Eintrag
+                             const totalAuslagen = (Number(entry.hotelCost)||0) + (Number(entry.parkCost)||0) + (Number(entry.sonstigesCost)||0);
+                             let overnightText = '-';
+                             if(entry.overnight === 'hotel') overnightText = 'Hotel';
+                             if(entry.overnight === 'receipt') overnightText = 'ÜP mit Beleg';
+                             if(entry.overnight === 'noreceipt') overnightText = 'ÜP ohne Beleg';
+
+                             return (
+                             <tr key={entry.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                               <td className="p-3 font-medium text-gray-700 whitespace-nowrap">
+                                 {new Date(entry.date).toLocaleDateString('de-DE')}
                                </td>
-                               <td className="p-4 text-sm text-gray-600">
+                               
+                               <td className="p-3 text-sm text-gray-600">
                                  {entry.type === 'work' && (
                                    <div>
-                                     {entry.duration.toFixed(2)}h ({entry.startTime} - {entry.endTime})
-                                     {entry.hotelCost > 0 && <span className="ml-2 text-red-500">Hotel: {entry.hotelCost}€</span>}
+                                     <span className="font-semibold text-blue-700">{entry.duration.toFixed(2)}h</span> <br/>
+                                     <span className="text-xs text-gray-400">{entry.startTime} - {entry.endTime} (Pause: {entry.breakMinutes}m)</span>
                                    </div>
                                  )}
-                                 {entry.type === 'abbummeln' && `-${entry.hours}h vom Zeitkonto`}
-                                 {entry.type === 'cc_paid' && `${entry.amount}€ abgebucht`}
+                                 {entry.type === 'abbummeln' && <span className="text-orange-600 font-semibold">-{entry.hours}h Abbummeln</span>}
+                                 {entry.type === 'cc_paid' && <span className="text-green-600 font-semibold">KK Abgebucht</span>}
                                </td>
-                               <td className="p-4 text-right">
-                                 <button onClick={() => deleteEntry(entry.id)} className="text-red-400 hover:text-red-600 p-2"><i className="fa-solid fa-trash"></i></button>
+
+                               <td className="p-3 text-sm">
+                                 {entry.type === 'work' && totalAuslagen > 0 ? (
+                                    <div className="text-red-600 font-medium">
+                                       {totalAuslagen.toFixed(2)} €
+                                       <div className="text-xs text-gray-400 mt-0.5">
+                                          {entry.hotelCost > 0 && `H: ${entry.hotelCost}€ `}
+                                          {entry.parkCost > 0 && `P: ${entry.parkCost}€ `}
+                                          {entry.sonstigesCost > 0 && `S: ${entry.sonstigesCost}€`}
+                                       </div>
+                                    </div>
+                                 ) : <span className="text-gray-300">-</span>}
+                                 {entry.type === 'cc_paid' && <span className="text-green-600 font-bold">{entry.amount} €</span>}
+                               </td>
+
+                               <td className="p-3 text-sm text-gray-600">
+                                  {entry.type === 'work' ? (
+                                    <span className={entry.overnight !== 'none' ? 'bg-indigo-100 text-indigo-800 py-1 px-2 rounded-full text-xs font-semibold' : ''}>
+                                      {overnightText}
+                                    </span>
+                                  ) : ''}
+                               </td>
+
+                               <td className="p-3 text-right no-print">
+                                 <button onClick={() => deleteEntry(entry.id)} className="text-red-300 hover:text-red-600 hover:bg-red-50 p-2 rounded transition-colors"><i className="fa-solid fa-trash"></i></button>
                                </td>
                              </tr>
-                           ))}
+                           )})}
                          </tbody>
                        </table>
                      </div>
@@ -511,95 +650,103 @@
 
                 {activeTab === 'settings' && (
                   <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto space-y-6">
-                     <h2 className="text-xl font-bold text-gray-800 border-b pb-2">Regeln & Parameter</h2>
+                     <h2 className="text-xl font-bold text-gray-800 border-b pb-2"><i className="fa-solid fa-sliders text-blue-600 mr-2"></i> Einstellungen & Regeln</h2>
                      
                      <div className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="col-span-2">
-                             <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800">
-                               Pass hier die Werte an, damit die App exakt zu deinem Arbeitsvertrag passt. Alle Berechnungen im Dashboard updaten sich sofort!
-                             </div>
-                          </div>
 
+                        {/* Daten Sichern / Importieren Bereich */}
+                        <div className="bg-indigo-50 border border-indigo-100 p-4 rounded-xl mb-6">
+                           <h4 className="font-semibold text-indigo-900 mb-2"><i className="fa-solid fa-cloud-arrow-down"></i> Daten Sichern & Übertragen</h4>
+                           <p className="text-xs text-indigo-700 mb-4">
+                             Da die App lokal in deinem Browser läuft, musst du die Daten exportieren, wenn du sie vom Handy auf den PC übertragen möchtest. 
+                           </p>
+                           <div className="flex flex-wrap gap-2">
+                             <button onClick={exportJSON} className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm py-2 px-4 rounded shadow">
+                               <i className="fa-solid fa-download mr-2"></i> Backup speichern
+                             </button>
+                             <label className="bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-50 cursor-pointer text-sm py-2 px-4 rounded shadow">
+                               <i className="fa-solid fa-upload mr-2"></i> Backup laden
+                               <input type="file" accept=".json" onChange={importJSON} className="hidden" />
+                             </label>
+                           </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Basis-Stunden/Tag</label>
-                            <input type="number" value={settings.dailyBaseHours} onChange={e => setSettings({...settings, dailyBaseHours: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" value={settings.dailyBaseHours} onChange={e => setSettings({...settings, dailyBaseHours: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Stundenlohn (€)</label>
-                            <input type="number" value={settings.hourlyRate} onChange={e => setSettings({...settings, hourlyRate: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" value={settings.hourlyRate} onChange={e => setSettings({...settings, hourlyRate: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           
                           <div className="col-span-2 border-t pt-2 mt-2">
-                            <h4 className="font-semibold text-gray-700 mb-2">Aktuelle Startwerte</h4>
+                            <h4 className="font-semibold text-gray-700 mb-2">Manuelle Startwerte korrigieren</h4>
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Zeitkonto (h)</label>
                             <input type="number" step="0.1" value={settings.initialZeitkonto || 0} onChange={e => setSettings({...settings, initialZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded border-blue-300 bg-blue-50" />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Spesenkonto (€)</label>
+                            <label className="block text-sm text-gray-600 mb-1">Spesenkonto C24 (€)</label>
                             <input type="number" step="0.01" value={settings.initialPersonalMoney || 0} onChange={e => setSettings({...settings, initialPersonalMoney: Number(e.target.value)})} className="w-full p-2 border rounded border-emerald-300 bg-emerald-50" />
                           </div>
-                          <div>
+                          <div className="col-span-2">
                             <label className="block text-sm text-gray-600 mb-1">Kreditkarte Offen (€)</label>
-                            <input type="number" step="0.01" value={settings.initialCreditCardDebt || 0} onChange={e => setSettings({...settings, initialCreditCardDebt: Number(e.target.value)})} className="w-full p-2 border rounded border-red-300 bg-red-50" />
+                            <input type="number" step="0.01" value={settings.initialCreditCardDebt || 0} onChange={e => setSettings({...settings, initialCreditCardDebt: Number(e.target.value)})} className="w-full p-2 border rounded border-red-300 bg-red-50 max-w-[50%]" />
                           </div>
 
                           <div className="col-span-2 border-t pt-2 mt-2">
-                            <h4 className="font-semibold text-gray-700 mb-2">Regeln & Boni</h4>
+                            <h4 className="font-semibold text-gray-700 mb-2">Zuschläge & Boni</h4>
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Max. Zeitkonto (h)</label>
-                            <input type="number" value={settings.maxZeitkonto} onChange={e => setSettings({...settings, maxZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" value={settings.maxZeitkonto} onChange={e => setSettings({...settings, maxZeitkonto: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Bonus Standard (%)</label>
-                            <input type="number" value={settings.overtimeBonusPercent} onChange={e => setSettings({...settings, overtimeBonusPercent: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <label className="block text-sm text-gray-600 mb-1">Bonus 1.+2. Ü-Stunde (%)</label>
+                            <input type="number" value={settings.overtimeBonusPercent} onChange={e => setSettings({...settings, overtimeBonusPercent: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">Bonus Nacht/Sonder (%)</label>
-                            <input type="number" value={settings.overtimeBonusSpecialPercent || 50} onChange={e => setSettings({...settings, overtimeBonusSpecialPercent: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <label className="block text-sm text-gray-600 mb-1">Bonus ab 3. Ü-Stunde (%)</label>
+                            <input type="number" value={settings.overtimeBonusSpecialPercent || 50} onChange={e => setSettings({...settings, overtimeBonusSpecialPercent: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                         </div>
 
-                        <h3 className="font-semibold text-gray-700 mt-6 pt-4 border-t">Spesen & Pauschalen</h3>
+                        <h3 className="font-semibold text-gray-700 mt-6 pt-4 border-t">Pauschalen laut HR</h3>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Kleine Spesen (ab Std.)</label>
-                            <input type="number" value={settings.spesenSmallHours || 8} onChange={e => setSettings({...settings, spesenSmallHours: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" value={settings.spesenSmallHours || 8} onChange={e => setSettings({...settings, spesenSmallHours: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Betrag Kleine Spesen (€)</label>
-                            <input type="number" value={settings.spesenSmallAmount || 14} onChange={e => setSettings({...settings, spesenSmallAmount: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" value={settings.spesenSmallAmount || 14} onChange={e => setSettings({...settings, spesenSmallAmount: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
-                            <label className="block text-sm text-gray-600 mb-1">24h Spesen (€)</label>
-                            <input type="number" value={settings.spesenLargeAmount || 28} onChange={e => setSettings({...settings, spesenLargeAmount: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <label className="block text-sm text-gray-600 mb-1">Große 24h Spesen (€)</label>
+                            <input type="number" value={settings.spesenLargeAmount || 28} onChange={e => setSettings({...settings, spesenLargeAmount: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">Frühstück-Abzug (€)</label>
-                            <input type="number" step="0.01" value={settings.breakfastDeduction || 5.60} onChange={e => setSettings({...settings, breakfastDeduction: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" step="0.01" value={settings.breakfastDeduction || 5.60} onChange={e => setSettings({...settings, breakfastDeduction: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">ÜP ohne Beleg (€)</label>
-                            <div className="relative">
-                              <input type="number" value={settings.overnightFlatrateWithoutReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithoutReceipt: Number(e.target.value)})} className="w-full p-2 border rounded border-orange-300" />
-                              <span className="absolute -top-5 right-0 text-xs text-orange-500 font-bold">⚠️ Prüfen!</span>
-                            </div>
+                            <input type="number" value={settings.overnightFlatrateWithoutReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithoutReceipt: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                           <div>
                             <label className="block text-sm text-gray-600 mb-1">ÜP mit Beleg (€)</label>
-                            <input type="number" value={settings.overnightFlatrateWithReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithReceipt: Number(e.target.value)})} className="w-full p-2 border rounded" />
+                            <input type="number" value={settings.overnightFlatrateWithReceipt} onChange={e => setSettings({...settings, overnightFlatrateWithReceipt: Number(e.target.value)})} className="w-full p-2 border rounded bg-gray-50" />
                           </div>
                         </div>
 
                         <div className="grid grid-cols-1 mt-6 pt-4 border-t">
-                           <h4 className="font-semibold text-gray-700 mb-2">System (Für GitHub Pages)</h4>
+                           <h4 className="font-semibold text-gray-700 mb-2">KI Schnittstelle</h4>
                            <div>
-                            <label className="block text-sm text-gray-600 mb-1">Gemini API Key (für KI-Scan)</label>
-                            <input type="password" value={settings.geminiApiKey || ''} onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} className="w-full p-2 border rounded bg-gray-50" placeholder="AIzaSy..." />
-                            <p className="text-xs text-gray-500 mt-1">Hier kannst du dir einen Google Gemini API Schlüssel eintragen, damit der Foto-Scan deiner Timesheets auch von GitHub aus funktioniert.</p>
+                            <label className="block text-sm text-gray-600 mb-1">Gemini API Key (Google)</label>
+                            <input type="password" value={settings.geminiApiKey || ''} onChange={e => setSettings({...settings, geminiApiKey: e.target.value})} className="w-full p-2 border rounded bg-white shadow-inner" placeholder="AIzaSy..." />
                           </div>
                         </div>
                      </div>
