@@ -60,7 +60,7 @@
           spesenSmallAmount: 14,
           spesenLargeAmount: 28,
           breakfastDeduction: 5.60,
-          overnightFlatrateWithoutReceipt: 30, // ⚠️ Unter Vorbehalt
+          overnightFlatrateWithoutReceipt: 30,
           overnightFlatrateWithReceipt: 30,
           geminiApiKey: ''
         };
@@ -86,6 +86,7 @@
         function SpesenTracker() {
           // States
           const [activeTab, setActiveTab] = useState('dashboard');
+          const [entryMode, setEntryMode] = useState('single'); // 'single' oder 'multi'
           const [isScanning, setIsScanning] = useState(false);
           const fileInputRef = useRef(null);
           
@@ -102,6 +103,53 @@
             const saved = localStorage.getItem('spesenEntries');
             return saved ? JSON.parse(saved) : [];
           });
+
+          // Form States
+          const [formData, setFormData] = useState({
+            date: new Date().toISOString().split('T')[0],
+            startTime: '08:00',
+            endTime: '16:15',
+            breakMinutes: 45,
+            overnight: 'none',
+            hotelCost: '',
+            parkCost: '',
+            sonstigesCost: '',
+            breakfastIncluded: false
+          });
+
+          const [multiTrip, setMultiTrip] = useState({
+            startDate: new Date().toISOString().split('T')[0],
+            endDate: new Date(Date.now() + 86400000).toISOString().split('T')[0], // Morgen
+            days: [],
+            overnight: 'hotel',
+            hotelCost: '',
+            parkCost: '',
+            sonstigesCost: '',
+            breakfastIncluded: true
+          });
+
+          // Init Multi-Trip Days if needed
+          useEffect(() => {
+             const start = new Date(multiTrip.startDate);
+             const end = new Date(multiTrip.endDate);
+             if (end >= start) {
+                 const diffDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
+                 if (diffDays >= 2 && diffDays <= 30) {
+                     const newDays = [];
+                     for (let i = 0; i < diffDays; i++) {
+                         const d = new Date(start);
+                         d.setDate(d.getDate() + i);
+                         const dateStr = d.toISOString().split('T')[0];
+                         const existing = multiTrip.days.find(x => x.date === dateStr);
+                         newDays.push(existing || { date: dateStr, startTime: '08:00', endTime: '16:15', breakMinutes: 45 });
+                     }
+                     if (JSON.stringify(multiTrip.days) !== JSON.stringify(newDays)) {
+                         setMultiTrip(prev => ({ ...prev, days: newDays }));
+                     }
+                 }
+             }
+          }, [multiTrip.startDate, multiTrip.endDate]);
+
 
           // Effects for saving
           useEffect(() => {
@@ -194,19 +242,31 @@
                 
                 calc.totalLohn = Number((calc.payoutBase + calc.payoutBonus25 + calc.payoutBonus50).toFixed(2));
                 
-                // Lohn nur für Dashboard addieren, wenn es der aktuelle Monat ist
                 if (entry.date.startsWith(currentMonthStr)) {
                    totalPayoutCurrentMonth += calc.totalLohn;
                 }
 
-                // Spesen
-                const durationGross = calculateDuration(entry.startTime, entry.endTime, 0);
-                if (durationGross >= 24) {
-                  calc.spesenTag = settings.spesenLargeAmount;
-                } else if (durationGross >= settings.spesenSmallHours) {
-                  calc.spesenTag = settings.spesenSmallAmount;
+                // Spesen Berechnung
+                if (entry.tripType === 'anreise' || entry.tripType === 'abreise') {
+                    // Fixer Satz für An/Abreise laut Gesetz/HR
+                    calc.spesenTag = settings.spesenSmallAmount;
+                } else if (entry.tripType === 'voll') {
+                    // Fixer Satz für volle Zwischentage
+                    calc.spesenTag = settings.spesenLargeAmount;
+                } else {
+                    // Reguläre Berechnung für einzelne Tage
+                    const durationGross = calculateDuration(entry.startTime, entry.endTime, 0);
+                    if (durationGross >= 24) calc.spesenTag = settings.spesenLargeAmount;
+                    else if (durationGross >= settings.spesenSmallHours) calc.spesenTag = settings.spesenSmallAmount;
                 }
-                if (entry.breakfastIncluded) calc.spesenTag -= (settings.breakfastDeduction || 5.60);
+
+                // Frühstücksabzug
+                if (entry.breakfastIncluded) {
+                    // Am Anreisetag (Start von Zuhause) gibt es nie Frühstücksabzug
+                    if (entry.tripType !== 'anreise') {
+                        calc.spesenTag -= (settings.breakfastDeduction || 5.60);
+                    }
+                }
                 
                 personalMoney += calc.spesenTag;
 
@@ -267,18 +327,7 @@
             };
           }, [entries, settings]);
 
-          const [formData, setFormData] = useState({
-            date: new Date().toISOString().split('T')[0],
-            startTime: '08:00',
-            endTime: '16:15',
-            breakMinutes: 45,
-            overnight: 'none',
-            hotelCost: '',
-            parkCost: '',
-            sonstigesCost: '',
-            breakfastIncluded: false
-          });
-
+          // --- Input Handlers ---
           const handleInputChange = (e) => {
             const { name, value, type, checked } = e.target;
             setFormData(prev => ({
@@ -287,46 +336,101 @@
             }));
           };
 
-          // Funktion zum Runden auf 15-Minuten Schritte beim Verlassen des Feldes
-          const handleTimeBlur = (e) => {
-            const { name, value } = e.target;
-            if (!value) return;
-            
-            const [h, m] = value.split(':').map(Number);
-            const roundedM = Math.round(m / 15) * 15;
-            
-            let newH = h;
-            let newM = roundedM;
-            
-            if (roundedM === 60) {
-               newM = 0;
-               newH = (h + 1) % 24;
-            }
-            
-            setFormData(prev => ({
+          const handleMultiTripChange = (e) => {
+             const { name, value, type, checked } = e.target;
+             setMultiTrip(prev => ({
                ...prev,
-               [name]: `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`
-            }));
+               [name]: type === 'checkbox' ? checked : value
+             }));
           };
 
+          const handleMultiDayChange = (index, field, value) => {
+              setMultiTrip(prev => {
+                  const newDays = [...prev.days];
+                  newDays[index] = { ...newDays[index], [field]: value };
+                  return { ...prev, days: newDays };
+              });
+          };
+
+          // Runden auf 15-Minuten Schritte
+          const roundTo15Minutes = (value) => {
+            if (!value) return value;
+            const [h, m] = value.split(':').map(Number);
+            const roundedM = Math.round(m / 15) * 15;
+            let newH = h, newM = roundedM;
+            if (roundedM === 60) { newM = 0; newH = (h + 1) % 24; }
+            return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`;
+          }
+
+          const handleTimeBlur = (e) => {
+            const { name, value } = e.target;
+            const roundedVal = roundTo15Minutes(value);
+            setFormData(prev => ({ ...prev, [name]: roundedVal }));
+          };
+
+          const handleMultiTimeBlur = (index, field, value) => {
+            const roundedVal = roundTo15Minutes(value);
+            handleMultiDayChange(index, field, roundedVal);
+          };
+
+          // --- Submit Handlers ---
           const handleAddEntry = (e) => {
             e.preventDefault();
-            const duration = calculateDuration(formData.startTime, formData.endTime, formData.breakMinutes);
-            
-            const newEntry = {
-              id: Date.now().toString(),
-              type: 'work',
-              duration,
-              ...formData
-            };
+            if (entryMode === 'single') {
+                const duration = calculateDuration(formData.startTime, formData.endTime, formData.breakMinutes);
+                const newEntry = {
+                id: Date.now().toString(),
+                type: 'work',
+                tripType: 'single',
+                duration,
+                ...formData
+                };
+                setEntries([...entries, newEntry]); 
+                setFormData(prev => ({ ...prev, hotelCost: '', parkCost: '', sonstigesCost: '', overnight: 'none', breakfastIncluded: false }));
+            } else {
+                // Multi-Day Submit
+                const n = multiTrip.days.length;
+                if (n < 2) return alert("Eine Reise muss mindestens 2 Tage lang sein.");
+                
+                const newEntries = multiTrip.days.map((day, i) => {
+                    let tripType = 'voll';
+                    if (i === 0) tripType = 'anreise';
+                    if (i === n - 1) tripType = 'abreise';
+                    
+                    // Übernachtung gilt für die Nächte, nicht für den Tag der Abreise
+                    const overnight = (tripType === 'abreise') ? 'none' : multiTrip.overnight;
+                    
+                    // Kosten buchen wir komplett auf den letzten Tag (Abreise), da dann die Rechnung kommt
+                    const isLast = (i === n - 1);
+                    const hotelCost = isLast ? multiTrip.hotelCost : '';
+                    const parkCost = isLast ? multiTrip.parkCost : '';
+                    const sonstigesCost = isLast ? multiTrip.sonstigesCost : '';
 
-            setEntries([...entries, newEntry]); 
-            setFormData(prev => ({ ...prev, hotelCost: '', parkCost: '', sonstigesCost: '', overnight: 'none', breakfastIncluded: false }));
+                    return {
+                        id: Date.now().toString() + '-' + i,
+                        type: 'work',
+                        tripType,
+                        date: day.date,
+                        startTime: day.startTime,
+                        endTime: day.endTime,
+                        breakMinutes: day.breakMinutes,
+                        duration: calculateDuration(day.startTime, day.endTime, day.breakMinutes),
+                        overnight,
+                        breakfastIncluded: multiTrip.breakfastIncluded,
+                        hotelCost,
+                        parkCost,
+                        sonstigesCost
+                    };
+                });
+                setEntries([...entries, ...newEntries]);
+                // Reset Costs
+                setMultiTrip(prev => ({ ...prev, hotelCost: '', parkCost: '', sonstigesCost: '' }));
+            }
             setActiveTab('history'); 
           };
 
           const deleteEntry = (id) => {
-            if(window.confirm("Eintrag wirklich löschen?")) {
+            if(window.confirm("Eintrag wirklich löschen? Bei einer Reise wird nur dieser eine Reisetag gelöscht!")) {
                setEntries(entries.filter(e => e.id !== id));
             }
           };
@@ -375,9 +479,8 @@
 
           const exportCSV = () => {
              let csvContent = "data:text/csv;charset=utf-8,";
-             csvContent += "Datum,Typ,Dauer(h),Start,Ende,Pause(Min),Lohn_Gesamt(€),Lohn_Grund(€),Bonus25(€),Bonus50(€),Zeitkonto(h),Spesen(€),Ü-Pauschale(€),Auslagen_Vorgestreckt(€)\n";
+             csvContent += "Datum,Trip-Typ,Dauer(h),Start,Ende,Pause(Min),Lohn_Gesamt(€),Lohn_Grund(€),Bonus25(€),Bonus50(€),Zeitkonto(h),Spesen(€),Ü-Pauschale(€),Auslagen_Vorgestreckt(€)\n";
              
-             // Alle Einträge für CSV flach klopfen
              const allEnriched = [];
              Object.values(groupedEntries).forEach(group => {
                  allEnriched.push(...group.entries);
@@ -387,7 +490,7 @@
                 const c = e.calc || {};
                 const row = [
                    e.date,
-                   e.type,
+                   e.tripType || e.type,
                    e.duration ? e.duration.toFixed(2) : (e.hours ? `-${e.hours}` : ''),
                    e.startTime || '',
                    e.endTime || '',
@@ -424,12 +527,17 @@
                const reader = new FileReader();
                reader.onloadend = async () => {
                  const base64Data = reader.result.split(',')[1];
-                 const payload = { contents: [{ role: "user", parts: [{ text: "JSON Format: { \"date\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"breakMinutes\": 45, \"hotelCost\": 0, \"parkCost\": 0 }. Nur pures JSON ohne Formatierung." }, { inlineData: { mimeType: file.type, data: base64Data } }] }], generationConfig: { responseMimeType: "application/json" } };
+                 const payload = { contents: [{ role: "user", parts: [{ text: "JSON Format: { \"date\": \"YYYY-MM-DD\", \"startTime\": \"HH:MM\", \"endTime\": \"HH:MM\", \"breakMinutes\": 45, \"hotelCost\": 0, \"parkCost\": 0 }. Nur pures JSON." }, { inlineData: { mimeType: file.type, data: base64Data } }] }], generationConfig: { responseMimeType: "application/json" } };
                  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                  if (!response.ok) throw new Error("API Error");
                  const result = await response.json();
                  const data = JSON.parse(result.candidates[0].content.parts[0].text);
-                 setFormData(prev => ({ ...prev, date: data.date||prev.date, startTime: data.startTime||prev.startTime, endTime: data.endTime||prev.endTime, breakMinutes: data.breakMinutes!==undefined?data.breakMinutes:45, hotelCost: data.hotelCost||prev.hotelCost, parkCost: data.parkCost||prev.parkCost }));
+                 
+                 if (entryMode === 'single') {
+                    setFormData(prev => ({ ...prev, date: data.date||prev.date, startTime: data.startTime||prev.startTime, endTime: data.endTime||prev.endTime, breakMinutes: data.breakMinutes!==undefined?data.breakMinutes:45, hotelCost: data.hotelCost||prev.hotelCost, parkCost: data.parkCost||prev.parkCost }));
+                 } else {
+                    alert("KI Scan wird aktuell nur im 'Einzelner Tag' Modus unterstützt.");
+                 }
                  setIsScanning(false);
                };
                reader.readAsDataURL(file);
@@ -526,96 +634,214 @@
                     <div className="p-6 bg-blue-50 dark:bg-blue-900/30 border-b border-blue-100 dark:border-blue-800 flex justify-between items-center">
                       <div>
                         <h2 className="text-xl font-bold text-blue-900 dark:text-blue-100">Neuer Eintrag</h2>
-                        <p className="text-sm text-blue-700 dark:text-blue-300">Zeiten werden beim Klick in's nächste Feld auf 15-Min gerundet!</p>
+                        <p className="text-sm text-blue-700 dark:text-blue-300">Zeiten werden beim Verlassen des Feldes auf 15-Min gerundet!</p>
                       </div>
-                      <div>
-                        <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-                        <button onClick={() => fileInputRef.current?.click()} disabled={isScanning} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow">
-                          <i className="fa-solid fa-camera"></i> {isScanning ? 'Scannt...' : 'KI Scan'}
-                        </button>
-                      </div>
+                      {entryMode === 'single' && (
+                          <div>
+                            <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                            <button onClick={() => fileInputRef.current?.click()} disabled={isScanning} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow">
+                            <i className="fa-solid fa-camera"></i> {isScanning ? 'Scannt...' : 'KI Scan'}
+                            </button>
+                          </div>
+                      )}
                     </div>
                     
-                    <form onSubmit={handleAddEntry} className="p-6 space-y-8">
-                      <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-clock text-blue-500"></i> Arbeitszeit</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Datum</label>
-                            <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Pause (Minuten)</label>
-                            <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" min="0" required />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Startzeit</label>
-                            <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} onBlur={handleTimeBlur} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Endzeit</label>
-                            <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} onBlur={handleTimeBlur} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
-                          </div>
-                        </div>
+                    <form onSubmit={handleAddEntry} className="p-6">
+                      
+                      {/* Modus Auswahl (Single vs Multi) */}
+                      <div className="flex bg-gray-100 dark:bg-gray-900 p-1 rounded-lg mb-8 w-full max-w-sm mx-auto shadow-inner border border-gray-200 dark:border-gray-700">
+                         <button type="button" onClick={() => setEntryMode('single')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${entryMode === 'single' ? 'bg-white dark:bg-gray-700 shadow text-blue-700 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>Einzelner Tag</button>
+                         <button type="button" onClick={() => setEntryMode('multi')} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${entryMode === 'multi' ? 'bg-white dark:bg-gray-700 shadow text-blue-700 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}>Mehrtägige Reise</button>
                       </div>
 
-                      <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-bed text-indigo-500"></i> Reise & Übernachtung</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="col-span-1 md:col-span-2">
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-3">Übernachtungsart auswählen:</label>
-                            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'none' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
-                                <input type="radio" name="overnight" value="none" checked={formData.overnight === 'none'} onChange={handleInputChange} className="hidden" /> 
-                                <i className="fa-solid fa-house text-gray-400 block mb-1"></i> Keine
-                              </label>
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'hotel' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
-                                <input type="radio" name="overnight" value="hotel" checked={formData.overnight === 'hotel'} onChange={handleInputChange} className="hidden" /> 
-                                <i className="fa-solid fa-bell-concierge text-indigo-400 block mb-1"></i> Hotelbuchung
-                              </label>
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'receipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
-                                <input type="radio" name="overnight" value="receipt" checked={formData.overnight === 'receipt'} onChange={handleInputChange} className="hidden" /> 
-                                <i className="fa-solid fa-file-invoice text-emerald-400 block mb-1"></i> ÜP mit Beleg
-                              </label>
-                              <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'noreceipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
-                                <input type="radio" name="overnight" value="noreceipt" checked={formData.overnight === 'noreceipt'} onChange={handleInputChange} className="hidden" /> 
-                                <i className="fa-solid fa-user-group text-orange-400 block mb-1"></i> ÜP ohne Beleg
-                              </label>
+                      {entryMode === 'single' ? (
+                        // SINGLE DAY FORM
+                        <div className="space-y-8">
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-clock text-blue-500"></i> Arbeitszeit</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Datum</label>
+                                    <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Pause (Minuten)</label>
+                                    <input type="number" name="breakMinutes" value={formData.breakMinutes} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" min="0" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Startzeit</label>
+                                    <input type="time" name="startTime" value={formData.startTime} onChange={handleInputChange} onBlur={handleTimeBlur} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Endzeit</label>
+                                    <input type="time" name="endTime" value={formData.endTime} onChange={handleInputChange} onBlur={handleTimeBlur} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" required />
+                                </div>
+                                </div>
                             </div>
-                          </div>
 
-                          {formData.overnight === 'hotel' && (
-                            <React.Fragment>
-                              <div>
-                                <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Hotelkosten (€)</label>
-                                <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
-                              </div>
-                              <div className="flex items-center pb-2">
-                                 <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer bg-gray-100 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 w-full">
-                                  <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded" /> <i className="fa-solid fa-mug-hot text-amber-600"></i> inkl. Frühstück (-5,60€)
-                                </label>
-                              </div>
-                            </React.Fragment>
-                          )}
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-bed text-indigo-500"></i> Reise & Übernachtung</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="col-span-1 md:col-span-2">
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-3">Übernachtungsart auswählen:</label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                                    <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'none' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                        <input type="radio" name="overnight" value="none" checked={formData.overnight === 'none'} onChange={handleInputChange} className="hidden" /> 
+                                        <i className="fa-solid fa-house text-gray-400 block mb-1"></i> Keine
+                                    </label>
+                                    <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'hotel' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                        <input type="radio" name="overnight" value="hotel" checked={formData.overnight === 'hotel'} onChange={handleInputChange} className="hidden" /> 
+                                        <i className="fa-solid fa-bell-concierge text-indigo-400 block mb-1"></i> Hotelbuchung
+                                    </label>
+                                    <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'receipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                        <input type="radio" name="overnight" value="receipt" checked={formData.overnight === 'receipt'} onChange={handleInputChange} className="hidden" /> 
+                                        <i className="fa-solid fa-file-invoice text-emerald-400 block mb-1"></i> ÜP mit Beleg
+                                    </label>
+                                    <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${formData.overnight === 'noreceipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                        <input type="radio" name="overnight" value="noreceipt" checked={formData.overnight === 'noreceipt'} onChange={handleInputChange} className="hidden" /> 
+                                        <i className="fa-solid fa-user-group text-orange-400 block mb-1"></i> ÜP ohne Beleg
+                                    </label>
+                                    </div>
+                                </div>
+
+                                {formData.overnight === 'hotel' && (
+                                    <React.Fragment>
+                                    <div>
+                                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Hotelkosten (€)</label>
+                                        <input type="number" step="0.01" name="hotelCost" value={formData.hotelCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
+                                    </div>
+                                    <div className="flex items-center pb-2">
+                                        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer bg-gray-100 dark:bg-gray-700 p-3 rounded-lg border border-gray-200 dark:border-gray-600 w-full">
+                                        <input type="checkbox" name="breakfastIncluded" checked={formData.breakfastIncluded} onChange={handleInputChange} className="rounded" /> <i className="fa-solid fa-mug-hot text-amber-600"></i> inkl. Frühstück (-5,60€)
+                                        </label>
+                                    </div>
+                                    </React.Fragment>
+                                )}
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-receipt text-red-500"></i> Weitere Auslagen</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Parkkosten (€)</label>
+                                    <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Sonstiges (Leihwagen etc.) (€)</label>
+                                    <input type="number" step="0.01" name="sonstigesCost" value={formData.sonstigesCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
+                                </div>
+                                </div>
+                            </div>
                         </div>
-                      </div>
+                      ) : (
+                        // MULTI DAY FORM
+                        <div className="space-y-8">
+                            <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-lg p-5">
+                               <h3 className="font-bold text-indigo-900 dark:text-indigo-200 mb-4 flex items-center gap-2"><i className="fa-solid fa-calendar-week"></i> Zeitraum der Reise festlegen</h3>
+                               <div className="flex flex-col sm:flex-row gap-4 items-center">
+                                  <div className="w-full">
+                                      <label className="block text-xs text-indigo-700 dark:text-indigo-300 font-bold uppercase mb-1">Start (Anreisetag)</label>
+                                      <input type="date" name="startDate" value={multiTrip.startDate} onChange={handleMultiTripChange} className="w-full p-3 bg-white dark:bg-gray-800 border border-indigo-200 dark:border-gray-600 rounded-lg outline-none shadow-sm" required />
+                                  </div>
+                                  <div className="text-indigo-300 pt-5 hidden sm:block"><i className="fa-solid fa-arrow-right"></i></div>
+                                  <div className="w-full">
+                                      <label className="block text-xs text-indigo-700 dark:text-indigo-300 font-bold uppercase mb-1">Ende (Abreisetag)</label>
+                                      <input type="date" name="endDate" value={multiTrip.endDate} onChange={handleMultiTripChange} className="w-full p-3 bg-white dark:bg-gray-800 border border-indigo-200 dark:border-gray-600 rounded-lg outline-none shadow-sm" required />
+                                  </div>
+                               </div>
+                            </div>
 
-                      <div className="space-y-4">
-                        <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center gap-2"><i className="fa-solid fa-receipt text-red-500"></i> Weitere Auslagen</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Parkkosten (€)</label>
-                            <input type="number" step="0.01" name="parkCost" value={formData.parkCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Sonstiges (Leihwagen etc.) (€)</label>
-                            <input type="number" step="0.01" name="sonstigesCost" value={formData.sonstigesCost} onChange={handleInputChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
-                          </div>
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2"><i className="fa-solid fa-clock text-blue-500 mr-2"></i> Arbeitszeiten pro Tag</h3>
+                                {multiTrip.days.length === 0 && <p className="text-sm text-red-500">Bitte wähle ein gültiges Enddatum nach dem Startdatum.</p>}
+                                
+                                <div className="space-y-3">
+                                   {multiTrip.days.map((day, index) => {
+                                      let badge = "Voller Tag";
+                                      let badgeColor = "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200";
+                                      if (index === 0) { badge = "Anreise"; badgeColor = "bg-orange-100 text-orange-800 dark:bg-orange-900/50 dark:text-orange-200"; }
+                                      if (index === multiTrip.days.length - 1) { badge = "Abreise"; badgeColor = "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200"; }
+
+                                      return (
+                                       <div key={index} className="flex flex-col sm:flex-row items-center gap-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 p-3 rounded-lg">
+                                          <div className="w-full sm:w-1/3">
+                                             <div className="text-sm font-bold text-gray-700 dark:text-gray-300">{new Date(day.date).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}</div>
+                                             <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${badgeColor}`}>{badge}</span>
+                                          </div>
+                                          <div className="flex gap-2 w-full sm:w-2/3">
+                                             <div className="flex-1">
+                                                <label className="text-xs text-gray-500">Start</label>
+                                                <input type="time" value={day.startTime} onChange={(e) => handleMultiDayChange(index, 'startTime', e.target.value)} onBlur={(e) => handleMultiTimeBlur(index, 'startTime', e.target.value)} className="w-full p-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded text-sm outline-none" required />
+                                             </div>
+                                             <div className="flex-1">
+                                                <label className="text-xs text-gray-500">Ende</label>
+                                                <input type="time" value={day.endTime} onChange={(e) => handleMultiDayChange(index, 'endTime', e.target.value)} onBlur={(e) => handleMultiTimeBlur(index, 'endTime', e.target.value)} className="w-full p-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded text-sm outline-none" required />
+                                             </div>
+                                             <div className="w-16">
+                                                <label className="text-xs text-gray-500">Pause</label>
+                                                <input type="number" value={day.breakMinutes} onChange={(e) => handleMultiDayChange(index, 'breakMinutes', Number(e.target.value))} className="w-full p-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded text-sm outline-none text-center" required />
+                                             </div>
+                                          </div>
+                                       </div>
+                                      );
+                                   })}
+                                </div>
+                            </div>
+
+                            <div className="space-y-4">
+                                <h3 className="font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-200 dark:border-gray-700 pb-2"><i className="fa-solid fa-receipt text-red-500 mr-2"></i> Gesamtkosten der Reise</h3>
+                                <p className="text-xs text-gray-500 mb-3">Die App verteilt diese Kosten automatisch schlau auf den Abreisetag für deine Logbuch-Ansicht, damit alles 1x gebucht ist.</p>
+                                
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="col-span-1 md:col-span-2">
+                                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-3">Übernachtungsart für die {Math.max(0, multiTrip.days.length - 1)} Nächte:</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                                            <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${multiTrip.overnight === 'none' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                                <input type="radio" name="overnight" value="none" checked={multiTrip.overnight === 'none'} onChange={handleMultiTripChange} className="hidden" /> Keine
+                                            </label>
+                                            <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${multiTrip.overnight === 'hotel' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                                <input type="radio" name="overnight" value="hotel" checked={multiTrip.overnight === 'hotel'} onChange={handleMultiTripChange} className="hidden" /> Hotelbuchung
+                                            </label>
+                                            <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${multiTrip.overnight === 'receipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                                <input type="radio" name="overnight" value="receipt" checked={multiTrip.overnight === 'receipt'} onChange={handleMultiTripChange} className="hidden" /> ÜP mit Beleg
+                                            </label>
+                                            <label className={`cursor-pointer border rounded-lg p-3 text-center transition-all ${multiTrip.overnight === 'noreceipt' ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-500' : 'hover:bg-gray-50 dark:hover:bg-gray-700 border-gray-200 dark:border-gray-600'}`}>
+                                                <input type="radio" name="overnight" value="noreceipt" checked={multiTrip.overnight === 'noreceipt'} onChange={handleMultiTripChange} className="hidden" /> ÜP ohne Beleg
+                                            </label>
+                                        </div>
+                                    </div>
+
+                                    {multiTrip.overnight === 'hotel' && (
+                                        <React.Fragment>
+                                        <div>
+                                            <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Gesamte Hotelkosten (€)</label>
+                                            <input type="number" step="0.01" name="hotelCost" value={multiTrip.hotelCost} onChange={handleMultiTripChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
+                                        </div>
+                                        <div className="flex items-center pb-2">
+                                            <label className="flex flex-col text-sm text-gray-600 dark:text-gray-300 cursor-pointer bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-200 dark:border-amber-800 w-full hover:bg-amber-100 transition-colors">
+                                                <div className="flex items-center gap-2 font-bold"><input type="checkbox" name="breakfastIncluded" checked={multiTrip.breakfastIncluded} onChange={handleMultiTripChange} className="rounded" /> <i className="fa-solid fa-mug-hot text-amber-600"></i> Hotel Frühstück inklusive</div>
+                                                <span className="text-xs mt-1 text-amber-700 dark:text-amber-500">Zieht vollautomatisch 5,60€ von jedem Tag (außer der Anreise) ab.</span>
+                                            </label>
+                                        </div>
+                                        </React.Fragment>
+                                    )}
+
+                                    <div>
+                                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Gesamte Parkkosten (€)</label>
+                                        <input type="number" step="0.01" name="parkCost" value={multiTrip.parkCost} onChange={handleMultiTripChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Gesamtes Sonstiges (€)</label>
+                                        <input type="number" step="0.01" name="sonstigesCost" value={multiTrip.sonstigesCost} onChange={handleMultiTripChange} className="w-full p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg outline-none" placeholder="0.00" />
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                      </div>
+                      )}
 
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-lg">
-                        <i className="fa-solid fa-floppy-disk text-xl"></i> Eintrag speichern
+                      <button type="submit" className="w-full mt-8 bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-4 rounded-xl shadow-lg flex items-center justify-center gap-2 text-lg">
+                        <i className="fa-solid fa-floppy-disk text-xl"></i> {entryMode === 'single' ? 'Eintrag speichern' : 'Reise komplett speichern'}
                       </button>
                     </form>
                   </div>
@@ -675,6 +901,10 @@
                                        <tr key={entry.id} className="border-b border-gray-50 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                                          <td className="p-3 align-top">
                                            <div className="font-bold dark-print-fix">{new Date(entry.date).toLocaleDateString('de-DE')}</div>
+                                           {entry.tripType === 'anreise' && <div className="text-[10px] uppercase font-bold text-orange-600 mt-1">Anreise</div>}
+                                           {entry.tripType === 'voll' && <div className="text-[10px] uppercase font-bold text-blue-600 mt-1">Voller Tag</div>}
+                                           {entry.tripType === 'abreise' && <div className="text-[10px] uppercase font-bold text-emerald-600 mt-1">Abreise</div>}
+
                                            {entry.type === 'work' && (
                                              <div className="text-gray-500 dark:text-gray-400 mt-1">
                                                <span className="text-blue-600 dark:text-blue-400 font-bold">{entry.duration.toFixed(2)}h</span><br/>
