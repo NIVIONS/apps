@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mein Pflanzen-Dashboard V3</title>
+    <title>Mein Pflanzen-Dashboard V3.1</title>
     <style>
         :root {
             --bg-main: #f4f7f4;
@@ -90,4 +90,473 @@
             background-color: var(--panel-bg);
             border: 1px solid var(--border-color);
             border-radius: 20px;
-          
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .filter-btn.active, .filter-btn:hover {
+            background-color: var(--primary-light);
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .plant-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .plant-card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            transition: transform 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .plant-card:hover { transform: translateY(-4px); box-shadow: 0 8px 15px rgba(0,0,0,0.06); }
+
+        .plant-header { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: flex-start;}
+        .plant-card h3 { margin: 0; font-size: 18px; color: var(--primary); }
+
+        .img-gallery { display: flex; gap: 8px; margin: 12px 0; flex-wrap: wrap; }
+        .img-gallery img {
+            width: 100%;
+            max-height: 220px;
+            object-fit: cover;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            font-size: 11px;
+            border-radius: 12px;
+            font-weight: 600;
+            margin-top: 5px;
+        }
+        .badge-aroid { background-color: #e8f5e9; color: #2e7d32; }
+        .badge-wueste { background-color: #fff3e0; color: #ef6c00; }
+        .badge-fein { background-color: #e3f2fd; color: #1565c0; }
+
+        .info-item { margin: 8px 0; font-size: 13.5px; line-height: 1.4; }
+        .info-item strong {
+            color: var(--text-muted); display: block; font-size: 12px; text-transform: uppercase; margin-bottom: 2px;
+        }
+
+        .panel-box {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 25px;
+        }
+
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 8px; font-size: 14px; }
+        .form-group select, .form-group input, .form-group textarea {
+            width: 100%;
+            max-width: 500px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-primary:hover { background-color: #1e3516; }
+
+        .btn-danger {
+            background-color: #d32f2f;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            font-size: 13px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+
+        .delete-btn {
+            background: none; border: none; color: #d32f2f; cursor: pointer; font-size: 18px; padding: 0; line-height: 1;
+        }
+
+        .hidden { display: none !important; }
+        
+        .result-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f4f0; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Meine Pflanzensammlung V3.1</h1>
+        <p>Interaktiver Pflegeguide mit eigenem Pflanzen-Manager</p>
+    </header>
+
+    <div class="container">
+        
+        <div class="navigation-tabs">
+            <button id="btn-plants" class="nav-tab active" onclick="switchTab('plants')">🌿 Übersicht</button>
+            <button id="btn-calc" class="nav-tab" onclick="switchTab('calc')">🧪 Substrat-Rechner</button>
+            <button id="btn-add" class="nav-tab" onclick="switchTab('add')">➕ Hinzufügen</button>
+        </div>
+
+        <div id="tab-plants">
+            <div class="controls-row">
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Pflanze suchen..." oninput="filterPlants()">
+                </div>
+                <div class="filter-group">
+                    <button id="filter-all" class="filter-btn active" onclick="setFilter('all', this)">Alle</button>
+                    <button class="filter-btn" onclick="setFilter('Tropen', this)">Gruppe 1: Aroid</button>
+                    <button class="filter-btn" onclick="setFilter('Wüste', this)">Gruppe 2: Mineralisch</button>
+                    <button class="filter-btn" onclick="setFilter('Feine', this)">Gruppe 3: Feinmix</button>
+                </div>
+            </div>
+            <div class="plant-grid" id="plantGrid"></div>
+        </div>
+
+        <div id="tab-calc" class="hidden">
+            <div class="panel-box">
+                <h2>Substrat-Mischrechner (inkl. Urgesteinsmehl)</h2>
+                <div class="form-group">
+                    <label>Wähle deine Ziel-Mischung:</label>
+                    <select id="calcMix" onchange="calculateSubstrate()">
+                        <option value="aroid">Gruppe 1: Aroid-Mix (Tropen)</option>
+                        <option value="mineral">Gruppe 2: Mineralischer Mix (Wüste)</option>
+                        <option value="fein">Gruppe 3: Standard-Feinmix (Feine Wurzeln)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Gewünschte Menge an Erde (in Litern):</label>
+                    <input type="number" id="calcVolume" value="5" min="0.5" step="0.5" oninput="calculateSubstrate()">
+                </div>
+                <div style="margin-top: 25px; border-top: 2px dashed var(--border-color); padding-top: 20px;">
+                    <h3>Zutaten-Rezeptur:</h3>
+                    <div id="calcOutputs"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-add" class="hidden">
+            <div class="panel-box">
+                <h2>Neue Pflanze eintragen</h2>
+                <p>Die Daten werden direkt in deinem Browser gespeichert (Local Storage).</p>
+                <form id="addPlantForm" onsubmit="saveNewPlant(event)">
+                    
+                    <div class="form-group">
+                        <label>Name der Pflanze:</label>
+                        <input type="text" id="newName" required placeholder="z.B. Alocasia Zebrina">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Eigenes Foto hochladen:</label>
+                        <input type="file" id="newImage" accept="image/*">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Welche Substrat-Gruppe?</label>
+                        <select id="newMixType" required>
+                            <option value="Gruppe 1: Aroid-Mix (Tropen)">Gruppe 1: Aroid-Mix (Tropen)</option>
+                            <option value="Gruppe 2: Mineralischer Mix (Wüste)">Gruppe 2: Mineralischer Mix (Wüste)</option>
+                            <option value="Gruppe 3: Standard-Feinmix (Feine Wurzeln)">Gruppe 3: Standard-Feinmix (Feine Wurzeln)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Licht & Sonne:</label>
+                        <input type="text" id="newLicht" placeholder="z.B. Hell, aber keine direkte Sonne">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Gießen:</label>
+                        <input type="text" id="newGiessen" placeholder="z.B. Erde leicht antrocknen lassen">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Düngen:</label>
+                        <input type="text" id="newDuengen" placeholder="z.B. Alle 2 Wochen im Sommer">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Dein Pro-Tipp (Optional):</label>
+                        <textarea id="newTipp" rows="2" placeholder="z.B. Liebt hohe Luftfeuchtigkeit..."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn-primary">Pflanze speichern</button>
+                </form>
+
+                <div style="margin-top: 40px; border-top: 1px solid #eee; padding-top: 20px;">
+                    <p style="font-size: 12px; color: #666;">Falls du mal alles zurücksetzen möchtest:</p>
+                    <button onclick="resetData()" class="btn-danger">Alle eigenen Daten löschen (Reset)</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Standard-Datenbank (Deine 11 Pflanzen)
+        const defaultPlants = [
+            { id: 1, name: "Monstera deliciosa", images: "Standard", mix_type: "Gruppe 1: Aroid-Mix (Tropen)", mix_details: "3 T. Universalerde, 1 T. Coco Potting Soil, 3 T. Pinienerde, 2 T. Coco Ground Cover, 1 T. Seramis + Urgesteinsmehl.", licht: "Hell bis halbschattig. Keine pralle Mittagssonne.", giessen: "Mäßig. Erst gießen, wenn die oberen 3–5 cm trocken sind.", duengen: "April bis September alle 2 Wochen.", extra: "Nutze den Rankstab an der Rückseite des Hauptstamms.", b64_list: [] },
+            { id: 2, name: "Yucca-Palme", images: "Standard", mix_type: "Gruppe 2: Mineralischer Mix (Wüste)", mix_details: "2 T. Universalerde, 2 T. Granitsplit, 1 T. Seramis + Urgesteinsmehl.", licht: "Sehr hell bis vollsonnig.", giessen: "Sehr sparsam. Komplett austrocknen lassen.", duengen: "Frühjahr und Sommer alle 3–4 Wochen schwach dosiert.", extra: "Reagiert extrem empfindlich auf Staunässe.", b64_list: [] },
+            { id: 3, name: "Monstera Albo Variegata", images: "Standard", mix_type: "Gruppe 1: Aroid-Mix (Tropen)", mix_details: "Wie grüne Monstera.", licht: "Sehr hell, absolut keine direkte Sonne.", giessen: "Sehr kontrolliert. Zu viel Nässe führt zu braunen Flecken.", duengen: "April bis September alle 2–3 Wochen mäßig.", extra: "Benötigt mehr indirektes Licht als die grüne Form.", b64_list: [] },
+            { id: 4, name: "Silber-Kanonierblume", images: "Standard", mix_type: "Gruppe 3: Standard-Feinmix (Feine Wurzeln)", mix_details: "3 T. Universalerde, 1 T. Coco Potting Soil, 1 T. Seramis + Urgesteinsmehl.", licht: "Hell bis halbschattig.", giessen: "Gleichmäßig feucht halten.", duengen: "Frühjahr bis Herbst alle 2 Wochen.", extra: "Regelmäßiges Entspitzen sorgt für buschigen Wuchs.", b64_list: [] },
+            { id: 5, name: "Purpurtute (Syngonium)", images: "Standard", mix_type: "Gruppe 1: Aroid-Mix (Tropen)", mix_details: "Standard Aroid-Mix.", licht: "Hell bis halbschattig.", giessen: "Regelmäßig gießen.", duengen: "Frühjahr und Sommer alle 2 Wochen.", extra: "Rankhilfe sorgt für größere Blätter.", b64_list: [] },
+            { id: 6, name: "Bogenhanf", images: "Standard", mix_type: "Gruppe 2: Mineralischer Mix (Wüste)", mix_details: "Standard Mineral-Mix.", licht: "Extrem tolerant, optimal hell.", giessen: "Kaum gießen. Wochenlang trocken halten.", duengen: "Maximal alle 6–8 Wochen.", extra: "Perfekte Pflanze für Schlafzimmer.", b64_list: [] },
+            { id: 7, name: "Japanischer Spindelstrauch", images: "Standard", mix_type: "Gruppe 3: Standard-Feinmix (Feine Wurzeln)", mix_details: "Standard Feinmix.", licht: "Hell bis sonnig.", giessen: "Konstant leicht feucht halten.", duengen: "Frühjahr bis Mitte August alle 2 Wochen.", extra: "Sehr robust.", b64_list: [] },
+            { id: 8, name: "Philodendron 'Birkin'", images: "Standard", mix_type: "Gruppe 1: Aroid-Mix (Tropen)", mix_details: "Standard Aroid-Mix.", licht: "Hell, schattiert.", giessen: "Gießen, wenn obere Hälfte trocken.", duengen: "Frühjahr und Sommer alle 2 Wochen.", extra: "Wächst kompakt horstartig.", b64_list: [] },
+            { id: 9, name: "Currykraut", images: "Standard", mix_type: "Gruppe 2: Mineralischer Mix (Wüste)", mix_details: "Standard Mineral-Mix.", licht: "Volle, direkte Sonne.", giessen: "Sehr sparsam.", duengen: "Minimal. Einmal im Monat schwach.", extra: "Verströmt Curryduft.", b64_list: [] },
+            { id: 10, name: "Efeutute", images: "Standard", mix_type: "Gruppe 1: Aroid-Mix (Tropen)", mix_details: "Standard Aroid-Mix.", licht: "Hell bis halbschattig.", giessen: "Durchdringend gießen.", duengen: "Frühjahr bis Herbst alle 14 Tage.", extra: "Hervorragend für Rankstäbe.", b64_list: [] },
+            { id: 11, name: "Gefleckte Efeutute", images: "Standard", mix_type: "Gruppe 1: Aroid-Mix (Tropen)", mix_details: "Standard Aroid-Mix.", licht: "Hell, geschützt.", giessen: "Mäßig. Rollende Blätter zeigen Durst an.", duengen: "Wachstumsphase alle 2 Wochen.", extra: "Wächst kaskadenartig.", b64_list: [] }
+        ];
+
+        let plants = [];
+        let currentFilter = 'all';
+
+        // Lade Daten beim Start
+        function loadData() {
+            try {
+                const saved = localStorage.getItem('myPlantsDB');
+                if (saved) {
+                    plants = JSON.parse(saved);
+                } else {
+                    plants = [...defaultPlants];
+                    saveToLocalStorage();
+                }
+            } catch (error) {
+                console.error("Fehler beim Laden der gespeicherten Daten:", error);
+                plants = [...defaultPlants]; // Fallback, falls der Speicher korrupt ist
+            }
+            renderPlants(plants);
+        }
+
+        function saveToLocalStorage() {
+            localStorage.setItem('myPlantsDB', JSON.stringify(plants));
+        }
+
+        function resetData() {
+            if(confirm("Bist du sicher? Alle selbst hinzugefügten Pflanzen werden gelöscht!")) {
+                localStorage.removeItem('myPlantsDB');
+                plants = [...defaultPlants];
+                renderPlants(plants);
+                alert("Daten wurden zurückgesetzt.");
+            }
+        }
+
+        // TABS & FILTER LOGIK
+        function switchTab(tab) {
+            // Verstecke alle Inhalte
+            document.getElementById('tab-plants').classList.add('hidden');
+            document.getElementById('tab-calc').classList.add('hidden');
+            document.getElementById('tab-add').classList.add('hidden');
+            
+            // Entferne active-Klasse von allen Buttons
+            document.querySelectorAll('.nav-tab').forEach(btn => btn.classList.remove('active'));
+
+            // Zeige gewählten Inhalt und setze Button auf aktiv
+            document.getElementById('tab-' + tab).classList.remove('hidden');
+            document.getElementById('btn-' + tab).classList.add('active');
+            
+            if(tab === 'calc') calculateSubstrate();
+        }
+
+        function setFilter(group, btn) {
+            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = group;
+            filterPlants();
+        }
+
+        function getBadgeClass(mixType) {
+            if(mixType.includes('Tropen')) return 'badge-aroid';
+            if(mixType.includes('Wüste')) return 'badge-wueste';
+            return 'badge-fein';
+        }
+
+        // PFLANZEN ANZEIGEN
+        function renderPlants(data) {
+            const grid = document.getElementById('plantGrid');
+            grid.innerHTML = '';
+            
+            data.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'plant-card';
+                
+                let imgHtml = '';
+                if(p.b64_list && p.b64_list.length > 0) {
+                    imgHtml = `<div class="img-gallery"><img src="${p.b64_list[0]}"></div>`;
+                } else {
+                    imgHtml = `<div style="background: #e2ece0; height: 120px; border-radius: 8px; margin: 10px 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #2d5a27;">🌱 Keine Bilddaten</div>`;
+                }
+
+                // Delete Button nur für eigene Pflanzen (ID > 100)
+                let deleteBtn = '';
+                if(p.id > 100) {
+                    deleteBtn = `<button class="delete-btn" onclick="deletePlant(${p.id})" title="Pflanze löschen">🗑️</button>`;
+                }
+
+                card.innerHTML = `
+                    <div class="plant-header">
+                        <div>
+                            <h3 style="margin: 0;">${p.name}</h3>
+                            <span class="badge ${getBadgeClass(p.mix_type)}">${p.mix_type}</span>
+                        </div>
+                        ${deleteBtn}
+                    </div>
+                    ${imgHtml}
+                    <div class="info-item"><strong>Erdmix Rezept:</strong>${p.mix_details}</div>
+                    <div class="info-item"><strong>Licht & Sonne:</strong>${p.licht}</div>
+                    <div class="info-item"><strong>Gießen:</strong>${p.giessen}</div>
+                    <div class="info-item"><strong>Düngen:</strong>${p.duengen}</div>
+                    <div class="info-item" style="border-top:1px solid #f0f0f0; padding-top:8px; margin-top:12px; font-style:italic; color:#445533;">
+                        <strong>Pro-Tipp:</strong>${p.extra}
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function filterPlants() {
+            const searchVal = document.getElementById('searchInput').value.toLowerCase();
+            const filtered = plants.filter(p => {
+                const matchesSearch = p.name.toLowerCase().includes(searchVal);
+                const matchesFilter = currentFilter === 'all' || p.mix_type.includes(currentFilter);
+                return matchesSearch && matchesFilter;
+            });
+            renderPlants(filtered);
+        }
+
+        // NEUE PFLANZE SPEICHERN
+        function saveNewPlant(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('newName').value;
+            const mix = document.getElementById('newMixType').value;
+            const licht = document.getElementById('newLicht').value;
+            const giessen = document.getElementById('newGiessen').value;
+            const duengen = document.getElementById('newDuengen').value;
+            const tipp = document.getElementById('newTipp').value;
+            const fileInput = document.getElementById('newImage');
+
+            // Automatische Substrat-Zuweisung
+            let details = "Standard Rezept";
+            if(mix.includes('Aroid')) details = "3 T. Universalerde, 1 T. Coco Potting Soil, 3 T. Pinienerde, 2 T. Coco Ground Cover, 1 T. Seramis + Urgesteinsmehl.";
+            if(mix.includes('Mineralisch')) details = "2 T. Universalerde, 2 T. Granitsplit, 1 T. Seramis + Urgesteinsmehl.";
+            if(mix.includes('Feinmix')) details = "3 T. Universalerde, 1 T. Coco Potting Soil, 1 T. Seramis + Urgesteinsmehl.";
+
+            // Bild verarbeiten falls vorhanden
+            if (fileInput.files && fileInput.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    finalizeSave(name, mix, details, licht, giessen, duengen, tipp, event.target.result);
+                };
+                reader.readAsDataURL(fileInput.files[0]);
+            } else {
+                finalizeSave(name, mix, details, licht, giessen, duengen, tipp, null);
+            }
+        }
+
+        function finalizeSave(name, mix, details, licht, giessen, duengen, tipp, imgBase64) {
+            const neu = {
+                id: Date.now(), // Erzeugt eindeutige ID
+                name: name,
+                images: "Eigenes Bild",
+                mix_type: mix,
+                mix_details: details,
+                licht: licht,
+                giessen: giessen,
+                duengen: duengen,
+                extra: tipp || "Kein extra Tipp hinterlegt.",
+                b64_list: imgBase64 ? [imgBase64] : []
+            };
+
+            plants.push(neu);
+            saveToLocalStorage();
+            
+            document.getElementById('addPlantForm').reset();
+            alert("Pflanze erfolgreich hinzugefügt!");
+            
+            // Zurücksetzen von Filter und Suche
+            document.getElementById('searchInput').value = '';
+            setFilter('all', document.getElementById('filter-all'));
+            switchTab('plants');
+        }
+
+        function deletePlant(id) {
+            if(confirm("Möchtest du diese Pflanze wirklich löschen?")) {
+                plants = plants.filter(p => p.id !== id);
+                saveToLocalStorage();
+                filterPlants(); // Nutzt die aktuelle Filter-Einstellung zum neu zeichnen
+            }
+        }
+
+        // SUBSTRAT RECHNER
+        function calculateSubstrate() {
+            const mix = document.getElementById('calcMix').value;
+            const vol = parseFloat(document.getElementById('calcVolume').value) || 0;
+            const container = document.getElementById('calcOutputs');
+            container.innerHTML = '';
+
+            let ingredients = [];
+            let basaltMenge = "";
+
+            if(mix === 'aroid') {
+                ingredients = [
+                    { name: 'Universalerde', amount: (vol * 0.3).toFixed(2) },
+                    { name: 'Pinienerde (grob)', amount: (vol * 0.3).toFixed(2) },
+                    { name: 'Coco Ground Cover (Kokoschips)', amount: (vol * 0.2).toFixed(2) },
+                    { name: 'Coco Potting Soil', amount: (vol * 0.1).toFixed(2) },
+                    { name: 'Seramis', amount: (vol * 0.1).toFixed(2) }
+                ];
+                basaltMenge = (vol * 1.5).toFixed(0) + " EL Urgesteinsmehl";
+            } else if(mix === 'mineral') {
+                ingredients = [
+                    { name: 'Universalerde', amount: (vol * 0.4).toFixed(2) },
+                    { name: 'Granitsplit', amount: (vol * 0.4).toFixed(2) },
+                    { name: 'Seramis', amount: (vol * 0.2).toFixed(2) }
+                ];
+                basaltMenge = (vol * 3).toFixed(0) + " EL Urgesteinsmehl";
+            } else if(mix === 'fein') {
+                ingredients = [
+                    { name: 'Universalerde', amount: (vol * 0.6).toFixed(2) },
+                    { name: 'Coco Potting Soil', amount: (vol * 0.2).toFixed(2) },
+                    { name: 'Seramis', amount: (vol * 0.2).toFixed(2) }
+                ];
+                basaltMenge = (vol * 1.5).toFixed(0) + " EL Urgesteinsmehl";
+            }
+
+            ingredients.forEach(i => {
+                const row = document.createElement('div');
+                row.className = 'result-row';
+                row.innerHTML = `<span>${i.name}</span><strong>${i.amount} Liter</strong>`;
+                container.appendChild(row);
+            });
+
+            const basaltRow = document.createElement('div');
+            basaltRow.className = 'result-row';
+            basaltRow.innerHTML = `<span style="color:#689f38;">🌟 Geheimzutat</span><strong style="color:#689f38;">${basaltMenge}</strong>`;
+            container.appendChild(basaltRow);
+        }
+
+        // Init: Warten bis HTML komplett geladen ist, bevor JS ausführt
+        document.addEventListener("DOMContentLoaded", () => {
+            loadData();
+        });
+    </script>
+</body>
+</html>
