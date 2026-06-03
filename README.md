@@ -1,25 +1,3 @@
-<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Meine App Übersicht</title>
-    <style>
-        :root {
-            /* Farbpalette im modernen Dark-Mode */
-            --bg-color: #0d1117;
-            --card-bg: #161b22;
-            --text-color: #c9d1d9;
-            --border-color: #30363d;
-            --border-hover: #8b949e;
-            --link-color: #58a6ff;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
             padding: 2rem;
             display: flex;
             flex-direction: column;
