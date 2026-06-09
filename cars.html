@@ -28,7 +28,6 @@
             width: 100%;
             border-radius: 8px;
             background-color: #e9ecef;
-            /* Placeholder height if image is missing */
             min-height: 150px; 
             object-fit: cover;
         }
@@ -64,13 +63,14 @@
 </head>
 <body>
 
-    <h1>Mein Fuhrpark 2026</h1>
+    <h1>Mein Fuhrpark 2026 (Alle 8 Optionen)</h1>
 
+    <!-- 1. Aktueller Superb -->
     <div class="card">
         <div class="title">1. Aktueller Superb III (Referenz)</div>
         <div class="price">0,00 € Diff.</div>
         <div class="features">
-            <strong>Features:</strong> Mittelklasse, Standard-Fahrwerk, Akustik vorn, Leder, Lordosen-Massage.
+            <strong>Features:</strong> Mittelklasse, Standard-Fahrwerk, Akustik vorn, Leder, Massage.
         </div>
         <div class="pro-con">
             <div class="pro"><strong>Pro:</strong> Vertraut, extrem viel Platz.</div>
@@ -78,68 +78,101 @@
         </div>
     </div>
 
+    <!-- 2. Golf Variant Style -->
     <div class="card">
-        <img src="golf.jpg" alt="VW Golf Variant">
-        <div class="title">2. VW Golf Variant</div>
-        <div class="price save">ca. - 30,00 € (Ersparnis)</div>
+        <img src="golf.jpg" alt="VW Golf Variant Style">
+        <div class="title">2. VW Golf Variant Style</div>
+        <div class="price save">ca. - 42,00 € (Ersparnis)</div>
         <div class="features">
-            <strong>Features:</strong> Kompaktklasse, gutes Infotainment.
+            <strong>Features:</strong> DCC, Leder Vienna, Top-Sportsitze, Harman Kardon, Panoramadach.
         </div>
         <div class="pro-con">
-            <div class="pro"><strong>Pro:</strong> Finanziell unschlagbar.</div>
-            <div class="con"><strong>Contra:</strong> Kurzer Radstand, unruhiger.</div>
+            <div class="pro"><strong>Pro:</strong> Volle Hütte bei maximaler Ersparnis.</div>
+            <div class="con"><strong>Contra:</strong> Kurzer Radstand (unruhiger auf AB).</div>
         </div>
     </div>
 
+    <!-- 3. Octavia Balance -->
     <div class="card">
         <img src="octavia.jpg" alt="Skoda Octavia Balance">
         <div class="title">3. Skoda Octavia Balance</div>
+        <div class="price">ca. + 34,00 €</div>
+        <div class="features">
+            <strong>Features:</strong> DCC, Suite Cognac Leder, Canton Sound, Standheizung.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Preis-Leistungs-Sieger, edle Optik.</div>
+            <div class="con"><strong>Contra:</strong> "Nur" Kompaktklasse.</div>
+        </div>
+    </div>
+
+    <!-- 4. Passat Business klein -->
+    <div class="card">
+        <img src="passat_business.jpg" alt="VW Passat Business 12,9 Zoll">
+        <div class="title">4. VW Passat Business (12,9" Display)</div>
         <div class="price">ca. + 30,00 €</div>
         <div class="features">
-            <strong>Features:</strong> Adaptives DCC, Canton Sound, 17" Felgen.
+            <strong>Features:</strong> DCC Pro, Akustikglas, ergoActive-Sitze, Harman Kardon.
         </div>
         <div class="pro-con">
-            <div class="pro"><strong>Pro:</strong> Preis-Leistungs-Sieger.</div>
-            <div class="con"><strong>Contra:</strong> Nur Kompaktklasse.</div>
+            <div class="pro"><strong>Pro:</strong> L&K-Komfort zum absoluten Sparpreis.</div>
+            <div class="con"><strong>Contra:</strong> Kein echtes Leder, schlichte Optik.</div>
         </div>
     </div>
 
+    <!-- 5. Passat Business groß -->
     <div class="card">
-        <img src="passat_business.jpg" alt="VW Passat Business">
-        <div class="title">4. VW Passat Business (Der clevere)</div>
-        <div class="price">ca. + 25,00 bis + 40,00 €</div>
+        <img src="passat_business_large.jpg" alt="VW Passat Business 15 Zoll">
+        <div class="title">5. VW Passat Business (15" Display)</div>
+        <div class="price">ca. + 36,00 €</div>
         <div class="features">
-            <strong>Features:</strong> DCC Pro, Akustikglas, ergoActive-Massage, Harman Kardon.
+            <strong>Features:</strong> DCC Pro, Akustikglas, ergoActive-Sitze, Harman Kardon, 15" Screen.
         </div>
         <div class="pro-con">
-            <div class="pro"><strong>Pro:</strong> L&K Komfort zum Sparpreis.</div>
-            <div class="con"><strong>Contra:</strong> Kein Leder, optisch schlicht.</div>
+            <div class="pro"><strong>Pro:</strong> Perfekter AB-Komfort + riesiges Display.</div>
+            <div class="con"><strong>Contra:</strong> Minimal teurer als die 12,9" Variante.</div>
         </div>
     </div>
 
+    <!-- 6. Superb Selection -->
+    <div class="card">
+        <img src="superb_selection.jpg" alt="Skoda Superb Selection">
+        <div class="title">6. Skoda Superb Selection</div>
+        <div class="price">ca. + 60,00 €</div>
+        <div class="features">
+            <strong>Features:</strong> Mittelklasse, Lounge-Design, Matrix-LED, Panoramadach.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Gigantischer Laderaum, satter Radstand.</div>
+            <div class="con"><strong>Contra:</strong> Es fehlen DCC Pro und Akustikglas.</div>
+        </div>
+    </div>
+
+    <!-- 7. Passat Elegance -->
     <div class="card">
         <img src="passat_elegance.jpg" alt="VW Passat Elegance">
-        <div class="title">5. VW Passat Elegance</div>
+        <div class="title">7. VW Passat Elegance</div>
         <div class="price">+ 96,38 €</div>
         <div class="features">
-            <strong>Features:</strong> Gehobene Ausstattung, extrem leise.
+            <strong>Features:</strong> Elegance-Linie, Akustikpaket, ergoActive-Massage, 15" Screen.
         </div>
         <div class="pro-con">
-            <div class="pro"><strong>Pro:</strong> Fühlt sich an wie echte Oberklasse.</div>
-            <div class="con"><strong>Contra:</strong> Kostet fast einen Hunderter mehr.</div>
+            <div class="pro"><strong>Pro:</strong> Echtes Oberklasse-Gefühl im Innenraum.</div>
+            <div class="con"><strong>Contra:</strong> Kostet dich knapp einen Hunderter mehr.</div>
         </div>
     </div>
 
+    <!-- 8. Superb L&K -->
     <div class="card">
         <img src="superb_lk.jpg" alt="Skoda Superb L&K">
-        <div class="title">6. Skoda Superb L&K</div>
+        <div class="title">8. Skoda Superb L&K</div>
         <div class="price">+ 121,23 €</div>
         <div class="features">
-            <strong>Features:</strong> Voll-Akustikglas, DCC Pro, belüftetes Leder, Canton Sound.
+            <strong>Features:</strong> Voll-Akustikglas, DCC Pro, belüftetes Leder Cognac, Canton.
         </div>
         <div class="pro-con">
-            <div class="pro"><strong>Pro:</strong> Das absolute Nonplusultra.</div>
-            <div class="con"><strong>Contra:</strong> Die teuerste Option im System.</div>
+            <div class="pro"><strong>Pro:</strong> Das absolute Nonplusultra für Vielfahrer.</div>
+            <div class="con"><strong>Contra:</strong> Die teuerste Option im gesamten Pool.</div>
         </div>
     </div>
 
