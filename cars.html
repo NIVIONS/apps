@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firmenwagen Auswahl 2026</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f0f2f5;
+            color: #333;
+            margin: 0;
+            padding: 15px;
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.5rem;
+            color: #1a1a1a;
+        }
+        .card {
+            background: #fff;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        .card img {
+            width: 100%;
+            border-radius: 8px;
+            background-color: #e9ecef;
+            /* Placeholder height if image is missing */
+            min-height: 150px; 
+            object-fit: cover;
+        }
+        .title {
+            font-size: 1.25rem;
+            font-weight: bold;
+            margin: 10px 0 5px 0;
+        }
+        .price {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #d9534f;
+            margin-bottom: 10px;
+        }
+        .price.save {
+            color: #28a745;
+        }
+        .features {
+            font-size: 0.9rem;
+            line-height: 1.4;
+            margin-bottom: 10px;
+        }
+        .pro-con {
+            font-size: 0.85rem;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .pro { color: #28a745; }
+        .con { color: #d9534f; }
+        strong { color: #000; }
+    </style>
+</head>
+<body>
+
+    <h1>Mein Fuhrpark 2026</h1>
+
+    <div class="card">
+        <div class="title">1. Aktueller Superb III (Referenz)</div>
+        <div class="price">0,00 € Diff.</div>
+        <div class="features">
+            <strong>Features:</strong> Mittelklasse, Standard-Fahrwerk, Akustik vorn, Leder, Lordosen-Massage.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Vertraut, extrem viel Platz.</div>
+            <div class="con"><strong>Contra:</strong> In die Jahre gekommen.</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <img src="golf.jpg" alt="VW Golf Variant">
+        <div class="title">2. VW Golf Variant</div>
+        <div class="price save">ca. - 30,00 € (Ersparnis)</div>
+        <div class="features">
+            <strong>Features:</strong> Kompaktklasse, gutes Infotainment.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Finanziell unschlagbar.</div>
+            <div class="con"><strong>Contra:</strong> Kurzer Radstand, unruhiger.</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <img src="octavia.jpg" alt="Skoda Octavia Balance">
+        <div class="title">3. Skoda Octavia Balance</div>
+        <div class="price">ca. + 30,00 €</div>
+        <div class="features">
+            <strong>Features:</strong> Adaptives DCC, Canton Sound, 17" Felgen.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Preis-Leistungs-Sieger.</div>
+            <div class="con"><strong>Contra:</strong> Nur Kompaktklasse.</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <img src="passat_business.jpg" alt="VW Passat Business">
+        <div class="title">4. VW Passat Business (Der clevere)</div>
+        <div class="price">ca. + 25,00 bis + 40,00 €</div>
+        <div class="features">
+            <strong>Features:</strong> DCC Pro, Akustikglas, ergoActive-Massage, Harman Kardon.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> L&K Komfort zum Sparpreis.</div>
+            <div class="con"><strong>Contra:</strong> Kein Leder, optisch schlicht.</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <img src="passat_elegance.jpg" alt="VW Passat Elegance">
+        <div class="title">5. VW Passat Elegance</div>
+        <div class="price">+ 96,38 €</div>
+        <div class="features">
+            <strong>Features:</strong> Gehobene Ausstattung, extrem leise.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Fühlt sich an wie echte Oberklasse.</div>
+            <div class="con"><strong>Contra:</strong> Kostet fast einen Hunderter mehr.</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <img src="superb_lk.jpg" alt="Skoda Superb L&K">
+        <div class="title">6. Skoda Superb L&K</div>
+        <div class="price">+ 121,23 €</div>
+        <div class="features">
+            <strong>Features:</strong> Voll-Akustikglas, DCC Pro, belüftetes Leder, Canton Sound.
+        </div>
+        <div class="pro-con">
+            <div class="pro"><strong>Pro:</strong> Das absolute Nonplusultra.</div>
+            <div class="con"><strong>Contra:</strong> Die teuerste Option im System.</div>
+        </div>
+    </div>
+
+</body>
+</html>
