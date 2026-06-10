@@ -14,6 +14,7 @@
             --accent-hover: #2563eb;
             --border: #374151;
             --danger: #ef4444;
+            --success: #10b981;
         }
         
         :root[data-theme="light"] {
@@ -25,46 +26,74 @@
             --accent-hover: #1d4ed8;
             --border: #e5e7eb;
             --danger: #dc2626;
+            --success: #059669;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         
         body { background-color: var(--bg-color); color: var(--text-main); transition: all 0.3s ease; padding: 20px; }
         
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; border-bottom: 1px solid var(--border); padding-bottom: 20px; }
         
-        .header-actions { display: flex; gap: 10px; }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
         
-        button { background-color: var(--accent); color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button { background-color: var(--accent); color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; display: inline-flex; align-items: center; gap: 5px; }
         button:hover { background-color: var(--accent-hover); }
-        button.danger { background-color: var(--danger); }
+        button.danger { background-color: transparent; border: 1px solid var(--danger); color: var(--danger); }
+        button.danger:hover { background-color: var(--danger); color: white; }
         button.secondary { background-color: transparent; border: 1px solid var(--border); color: var(--text-main); }
-        
-        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 20px; }
-        @media(min-width: 768px) { .container { grid-template-columns: 350px 1fr; } }
+        button.secondary:hover { background-color: var(--border); }
+        button.add-btn { background-color: var(--success); font-size: 1.1em; padding: 10px 20px; }
+        button.add-btn:hover { background-color: #047857; }
 
-        .card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        .container { max-width: 1200px; margin: 0 auto; }
+
+        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
         
+        .insurance-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; }
+        .insurance-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+        
+        .css-logo { width: 48px; height: 48px; border-radius: 10px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 1.2em; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        
+        .insurance-details { flex-grow: 1; }
+        .insurance-details p { margin-bottom: 8px; font-size: 0.95em; }
+        .v-nummer { background: var(--bg-color); padding: 8px 12px; border-radius: 6px; border: 1px dashed var(--border); font-family: monospace; font-size: 1.1em; margin: 10px 0; color: var(--accent); }
+        
+        .contact-links { display: flex; gap: 10px; margin-top: 10px; margin-bottom: 15px; }
+        .contact-links a { flex: 1; text-align: center; background: var(--bg-color); color: var(--text-main); text-decoration: none; padding: 8px; border-radius: 6px; border: 1px solid var(--border); font-size: 0.9em; transition: 0.2s; }
+        .contact-links a:hover { border-color: var(--accent); color: var(--accent); }
+
+        .insurance-actions { margin-top: auto; display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 15px; }
+        
+        /* Modal Styles */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s; padding: 20px; backdrop-filter: blur(3px); }
+        .modal-overlay.active { opacity: 1; pointer-events: all; }
+        .modal-content { background: var(--card-bg); padding: 30px; border-radius: 12px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; border: 1px solid var(--border); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.5em; cursor: pointer; padding: 0; }
+        .close-btn:hover { color: var(--danger); background: none; }
+
+        /* Form Styles */
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-size: 0.9em; color: var(--text-muted); }
-        input, textarea { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background-color: var(--bg-color); color: var(--text-main); }
+        input, textarea, select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background-color: var(--bg-color); color: var(--text-main); font-size: 1em; }
+        input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
         
-        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
-        
-        .insurance-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 15px; position: relative; }
-        .insurance-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-        .insurance-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; background: white; padding: 2px; }
-        .insurance-details p { margin-bottom: 5px; font-size: 0.9em; }
-        .insurance-actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
-        
+        .form-row { display: flex; gap: 15px; }
+        .form-row > .form-group { flex: 1; }
+
         .hidden { display: none; }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>ShieldBase</h1>
+        <div>
+            <h1>ShieldBase</h1>
+            <p style="color: var(--text-muted); font-size: 0.9em;">Dein Versicherungs-Manager</p>
+        </div>
         <div class="header-actions">
+            <button class="add-btn" onclick="openModal()">➕ Hinzufügen</button>
             <input type="file" id="importFile" accept=".json" class="hidden">
             <button class="secondary" onclick="document.getElementById('importFile').click()">📥 Import</button>
             <button class="secondary" onclick="exportData()">📤 Backup</button>
@@ -73,57 +102,147 @@
     </header>
 
     <div class="container">
-        <aside class="card">
-            <h2 id="formTitle">Neue Versicherung</h2>
-            <p style="font-size: 0.8em; color: var(--text-muted); margin-bottom: 15px;">Für Logo-Automatik die Web-Domain eingeben (z.B. allianz.de)</p>
-            
-            <button class="secondary" style="width: 100%; margin-bottom: 15px;" onclick="triggerScan()">📷 Dokument Scannen (Demo)</button>
+        <main>
+            <div id="emptyState" style="text-align: center; padding: 50px 20px; color: var(--text-muted); display: none;">
+                <h2>Noch keine Versicherungen hinterlegt</h2>
+                <p style="margin-top: 10px;">Klicke oben auf "+ Hinzufügen", um deinen ersten Vertrag anzulegen.</p>
+            </div>
+            <div class="grid-cards" id="insuranceList">
+                <!-- Einträge werden hier generiert -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal für Formular -->
+    <div class="modal-overlay" id="formModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="formTitle">Neue Versicherung</h2>
+                <button class="close-btn" onclick="closeModal()">✖</button>
+            </div>
             
             <form id="insuranceForm">
                 <input type="hidden" id="editId">
+                <input type="hidden" id="vColor" value="#3b82f6">
+                <input type="hidden" id="vTextColor" value="#ffffff">
+
                 <div class="form-group">
-                    <label>Name der Versicherung *</label>
-                    <input type="text" id="vName" required placeholder="z.B. Privathaftpflicht">
+                    <label>Schnellauswahl (füllt Daten automatisch)</label>
+                    <select id="presetSelect" onchange="applyPreset()">
+                        <option value="">-- Eigene Eingabe --</option>
+                        <option value="allianz">Allianz</option>
+                        <option value="aok">AOK</option>
+                        <option value="axa">AXA</option>
+                        <option value="barmer">BARMER</option>
+                        <option value="cosmos">CosmosDirekt</option>
+                        <option value="devk">DEVK</option>
+                        <option value="ergo">ERGO</option>
+                        <option value="generali">Generali</option>
+                        <option value="huk">HUK-COBURG</option>
+                        <option value="ruv">R+V Versicherung</option>
+                        <option value="tk">Techniker Krankenkasse (TK)</option>
+                    </select>
                 </div>
+
                 <div class="form-group">
-                    <label>Web-Domain (für Logo)</label>
-                    <input type="text" id="vDomain" placeholder="z.B. huk.de">
+                    <label>Art / Name der Versicherung *</label>
+                    <input type="text" id="vName" required placeholder="z.B. Privathaftpflicht (HUK)">
                 </div>
+
                 <div class="form-group">
-                    <label>Startdatum *</label>
+                    <label>Versicherungsnummer</label>
+                    <input type="text" id="vNumber" placeholder="z.B. 123-456-789">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Telefon (Kontakt)</label>
+                        <input type="tel" id="vPhone" placeholder="0800...">
+                    </div>
+                    <div class="form-group">
+                        <label>E-Mail (Kontakt)</label>
+                        <input type="email" id="vEmail" placeholder="service@...">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Startdatum des Vertrags *</label>
                     <input type="date" id="vStart" required>
                 </div>
-                <div class="form-group">
-                    <label>Vertragslaufzeit (in Monaten) *</label>
-                    <input type="number" id="vDuration" required value="12">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Laufzeit (Monate) *</label>
+                        <input type="number" id="vDuration" required value="12">
+                    </div>
+                    <div class="form-group">
+                        <label>Kündigungsfrist (Monate) *</label>
+                        <input type="number" id="vNotice" required value="3">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Kündigungsfrist (in Monaten) *</label>
-                    <input type="number" id="vNotice" required value="3">
-                </div>
+
                 <div class="form-group">
                     <label>Umfang / Notizen</label>
                     <textarea id="vScope" rows="3" placeholder="Deckungssumme 50 Mio. €, etc."></textarea>
                 </div>
-                <button type="submit" style="width: 100%;" id="submitBtn">Speichern</button>
-                <button type="button" class="secondary hidden" style="width: 100%; margin-top: 10px;" id="cancelEditBtn" onclick="resetForm()">Abbrechen</button>
-            </form>
-        </aside>
 
-        <main>
-            <div class="grid-cards" id="insuranceList">
-                </div>
-        </main>
+                <button type="submit" style="width: 100%; padding: 12px; font-size: 1.1em;" id="submitBtn">💾 Speichern</button>
+            </form>
+        </div>
     </div>
 
     <script>
+        // Datenbank gängiger Versicherungen
+        const insurancePresets = {
+            "allianz": { name: "Allianz", phone: "0800 11223344", email: "info@allianz.de", color: "#003781", text: "#ffffff" },
+            "aok": { name: "AOK", phone: "0800 2655000", email: "info@aok.de", color: "#00643a", text: "#ffffff" },
+            "axa": { name: "AXA", phone: "0800 3203205", email: "service@axa.de", color: "#00008f", text: "#ffffff" },
+            "barmer": { name: "BARMER", phone: "0800 3331010", email: "service@barmer.de", color: "#006450", text: "#ffffff" },
+            "cosmos": { name: "CosmosDirekt", phone: "0681 9666666", email: "info@cosmosdirekt.de", color: "#003366", text: "#ffffff" },
+            "devk": { name: "DEVK", phone: "0800 4757475", email: "info@devk.de", color: "#006837", text: "#ffffff" },
+            "ergo": { name: "ERGO", phone: "0800 3746000", email: "info@ergo.de", color: "#e3000f", text: "#ffffff" },
+            "generali": { name: "Generali", phone: "089 51210", email: "service@generali.de", color: "#c81e1e", text: "#ffffff" },
+            "huk": { name: "HUK-COBURG", phone: "0800 2153153", email: "info@huk-coburg.de", color: "#ffe600", text: "#000000" },
+            "ruv": { name: "R+V Versicherung", phone: "0800 5331111", email: "ruv@ruv.de", color: "#004b7e", text: "#ffffff" },
+            "tk": { name: "Techniker Krankenkasse", phone: "0800 2858585", email: "service@tk.de", color: "#008a95", text: "#ffffff" }
+        };
+
         let insurances = JSON.parse(localStorage.getItem('insurances')) || [];
         const form = document.getElementById('insuranceForm');
+        const modal = document.getElementById('formModal');
         
         // Init
         renderList();
         
-        // Theme Management
+        // Modal & Form Handling
+        function openModal() {
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden'; // Verhindert Scrollen im Hintergrund
+        }
+
+        function closeModal() {
+            modal.classList.remove('active');
+            document.body.style.overflow = 'auto';
+            setTimeout(resetForm, 300); // Warten bis Animation fertig ist
+        }
+
+        function applyPreset() {
+            const presetKey = document.getElementById('presetSelect').value;
+            if (presetKey && insurancePresets[presetKey]) {
+                const data = insurancePresets[presetKey];
+                // Füllt die Felder auf, behält aber existierenden Text bei Name, falls man "Haftpflicht" davor schreiben will
+                const currentName = document.getElementById('vName').value;
+                document.getElementById('vName').value = currentName ? currentName : data.name;
+                document.getElementById('vPhone').value = data.phone;
+                document.getElementById('vEmail').value = data.email;
+                document.getElementById('vColor').value = data.color;
+                document.getElementById('vTextColor').value = data.text;
+            } else {
+                document.getElementById('vColor').value = "#3b82f6"; // Default Blue
+                document.getElementById('vTextColor').value = "#ffffff";
+            }
+        }
+        
         function toggleTheme() {
             const html = document.documentElement;
             const current = html.getAttribute('data-theme');
@@ -131,19 +250,15 @@
             html.setAttribute('data-theme', next);
         }
 
-        // Dummy Scan Function
-        function triggerScan() {
-            alert("Hinweis: Eine echte OCR-Dokumentenerkennung direkt im Browser ist fehleranfällig. Für eine automatische Erkennung von Laufzeiten bräuchtest du ein Backend mit einer KI-API (wie z.B. OpenAI). Aktuell bitte Daten manuell aus dem Vertrag ablesen!");
+        // Generiert Initiale für das Logo (z.B. "HUK-COBURG" -> "HU")
+        function getInitials(name) {
+            return name.substring(0, 2).toUpperCase();
         }
 
-        // Datumsberechnung für Kündigung
         function calculateCancelDate(start, durationMonths, noticeMonths) {
             let startDate = new Date(start);
-            // Vertragsende berechnen
             let endDate = new Date(startDate.setMonth(startDate.getMonth() + parseInt(durationMonths)));
-            // Letzter Kündigungstag
             let cancelDate = new Date(endDate.setMonth(endDate.getMonth() - parseInt(noticeMonths)));
-            // Wenn der Kündigungstag in der Vergangenheit liegt, für das nächste Jahr berechnen
             const today = new Date();
             while (cancelDate < today) {
                endDate = new Date(endDate.setMonth(endDate.getMonth() + 12));
@@ -152,7 +267,6 @@
             return cancelDate;
         }
 
-        // Kalender-Link generieren (Google Calendar)
         function getCalendarLink(name, cancelDate) {
             const d = cancelDate;
             const dateStr = d.toISOString().replace(/-|:|\.\d\d\d/g,"").substring(0, 8) + "T080000Z"; 
@@ -161,7 +275,6 @@
             return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dateStr}/${dateStr}&details=${details}`;
         }
 
-        // Formular-Handling
         form.addEventListener('submit', (e) => {
             e.preventDefault();
             const editId = document.getElementById('editId').value;
@@ -169,7 +282,11 @@
             const newEntry = {
                 id: editId ? parseInt(editId) : Date.now(),
                 name: document.getElementById('vName').value,
-                domain: document.getElementById('vDomain').value,
+                number: document.getElementById('vNumber').value,
+                phone: document.getElementById('vPhone').value,
+                email: document.getElementById('vEmail').value,
+                color: document.getElementById('vColor').value,
+                textColor: document.getElementById('vTextColor').value,
                 start: document.getElementById('vStart').value,
                 duration: document.getElementById('vDuration').value,
                 notice: document.getElementById('vNotice').value,
@@ -183,7 +300,7 @@
             }
 
             saveData();
-            resetForm();
+            closeModal();
             renderList();
         });
 
@@ -191,19 +308,27 @@
             const entry = insurances.find(i => i.id === id);
             document.getElementById('editId').value = entry.id;
             document.getElementById('vName').value = entry.name;
-            document.getElementById('vDomain').value = entry.domain;
+            document.getElementById('vNumber').value = entry.number || '';
+            document.getElementById('vPhone').value = entry.phone || '';
+            document.getElementById('vEmail').value = entry.email || '';
+            document.getElementById('vColor').value = entry.color || '#3b82f6';
+            document.getElementById('vTextColor').value = entry.textColor || '#ffffff';
             document.getElementById('vStart').value = entry.start;
             document.getElementById('vDuration').value = entry.duration;
             document.getElementById('vNotice').value = entry.notice;
             document.getElementById('vScope').value = entry.scope;
             
+            // Preset Dropdown resetten, da wir bearbeiten
+            document.getElementById('presetSelect').value = "";
+            
             document.getElementById('formTitle').innerText = "Versicherung bearbeiten";
-            document.getElementById('submitBtn').innerText = "Aktualisieren";
-            document.getElementById('cancelEditBtn').classList.remove('hidden');
+            document.getElementById('submitBtn').innerHTML = "💾 Aktualisieren";
+            
+            openModal();
         }
 
         function deleteEntry(id) {
-            if(confirm("Versicherung wirklich löschen?")) {
+            if(confirm("Diese Versicherung wirklich löschen?")) {
                 insurances = insurances.filter(i => i.id !== id);
                 saveData();
                 renderList();
@@ -213,82 +338,42 @@
         function resetForm() {
             form.reset();
             document.getElementById('editId').value = "";
+            document.getElementById('vColor').value = "#3b82f6";
+            document.getElementById('vTextColor').value = "#ffffff";
             document.getElementById('formTitle').innerText = "Neue Versicherung";
-            document.getElementById('submitBtn').innerText = "Speichern";
-            document.getElementById('cancelEditBtn').classList.add('hidden');
+            document.getElementById('submitBtn').innerHTML = "💾 Speichern";
         }
 
-        // Render Liste
         function renderList() {
             const list = document.getElementById('insuranceList');
+            const emptyState = document.getElementById('emptyState');
             list.innerHTML = '';
+
+            if (insurances.length === 0) {
+                emptyState.style.display = 'block';
+                return;
+            } else {
+                emptyState.style.display = 'none';
+            }
 
             insurances.forEach(ins => {
                 const cancelDate = calculateCancelDate(ins.start, ins.duration, ins.notice);
                 const cancelDateStr = cancelDate.toLocaleDateString('de-DE');
-                const logoUrl = ins.domain ? `https://logo.clearbit.com/${ins.domain.trim()}` : '';
                 const calLink = getCalendarLink(ins.name, cancelDate);
+                const initials = getInitials(ins.name);
+
+                // Sicherstellen, dass alte Einträge ohne Farbe eine Fallback-Farbe haben
+                const bgColor = ins.color || '#3b82f6';
+                const txtColor = ins.textColor || '#ffffff';
+                const vNummerHtml = ins.number ? `<div class="v-nummer">Nr: ${ins.number}</div>` : '';
+                
+                const phoneHtml = ins.phone ? `<a href="tel:${ins.phone}">📞 Anrufen</a>` : '';
+                const emailHtml = ins.email ? `<a href="mailto:${ins.email}">✉️ E-Mail</a>` : '';
+                const contactsHtml = (ins.phone || ins.email) ? `<div class="contact-links">${phoneHtml}${emailHtml}</div>` : '';
 
                 const div = document.createElement('div');
                 div.className = 'insurance-item';
                 div.innerHTML = `
                     <div class="insurance-header">
-                        ${logoUrl ? `<img src="${logoUrl}" class="insurance-logo" onerror="this.style.display='none'">` : '<div class="insurance-logo" style="background:#374151"></div>'}
-                        <h3>${ins.name}</h3>
-                    </div>
-                    <div class="insurance-details">
-                        <p><strong>Start:</strong> ${new Date(ins.start).toLocaleDateString('de-DE')}</p>
-                        <p><strong>Vertragsdauer:</strong> ${ins.duration} Monate</p>
-                        <p><strong>Kündigungsfrist:</strong> ${ins.notice} Monate</p>
-                        <p style="color: var(--danger); font-weight: bold; margin-top: 10px;">🚨 Kündigen bis: ${cancelDateStr}</p>
-                        <p style="margin-top: 10px; color: var(--text-muted); font-size: 0.85em;">${ins.scope}</p>
-                    </div>
-                    <div class="insurance-actions">
-                        <a href="${calLink}" target="_blank" style="text-decoration:none;">
-                            <button style="background-color: #10b981;">📅 Kalender</button>
-                        </a>
-                        <button class="secondary" onclick="editEntry(${ins.id})">✏️</button>
-                        <button class="danger" onclick="deleteEntry(${ins.id})">🗑️</button>
-                    </div>
-                `;
-                list.appendChild(div);
-            });
-        }
-
-        // Backup & Import
-        function saveData() {
-            localStorage.setItem('insurances', JSON.stringify(insurances));
-        }
-
-        function exportData() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(insurances, null, 2));
-            const downloadAnchorNode = document.createElement('a');
-            downloadAnchorNode.setAttribute("href",     dataStr);
-            downloadAnchorNode.setAttribute("download", "versicherungs_backup.json");
-            document.body.appendChild(downloadAnchorNode);
-            downloadAnchorNode.click();
-            downloadAnchorNode.remove();
-        }
-
-        document.getElementById('importFile').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                try {
-                    const imported = JSON.parse(e.target.result);
-                    if(Array.isArray(imported)) {
-                        insurances = imported;
-                        saveData();
-                        renderList();
-                        alert("Backup erfolgreich importiert!");
-                    }
-                } catch (err) {
-                    alert("Fehler beim Lesen der Datei. Ist es ein gültiges Backup?");
-                }
-            };
-            reader.readAsText(file);
-        });
-    </script>
-</body>
-</html>
+                        <div class="css-logo" style="background-color: ${bgColor}; color: ${txtColor};">${initials}</div>
+                      
