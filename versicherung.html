@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Versicherungs-Dashboard</title>
+    <style>
+        :root[data-theme="dark"] {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --border: #374151;
+            --danger: #ef4444;
+        }
+        
+        :root[data-theme="light"] {
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --text-main: #111827;
+            --text-muted: #4b5563;
+            --accent: #2563eb;
+            --accent-hover: #1d4ed8;
+            --border: #e5e7eb;
+            --danger: #dc2626;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        body { background-color: var(--bg-color); color: var(--text-main); transition: all 0.3s ease; padding: 20px; }
+        
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; flex-wrap: wrap; gap: 15px; }
+        
+        .header-actions { display: flex; gap: 10px; }
+        
+        button { background-color: var(--accent); color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background-color: var(--accent-hover); }
+        button.danger { background-color: var(--danger); }
+        button.secondary { background-color: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        
+        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr; gap: 20px; }
+        @media(min-width: 768px) { .container { grid-template-columns: 350px 1fr; } }
+
+        .card { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-size: 0.9em; color: var(--text-muted); }
+        input, textarea { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background-color: var(--bg-color); color: var(--text-main); }
+        
+        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; }
+        
+        .insurance-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 15px; position: relative; }
+        .insurance-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .insurance-logo { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; background: white; padding: 2px; }
+        .insurance-details p { margin-bottom: 5px; font-size: 0.9em; }
+        .insurance-actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+        
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>ShieldBase</h1>
+        <div class="header-actions">
+            <input type="file" id="importFile" accept=".json" class="hidden">
+            <button class="secondary" onclick="document.getElementById('importFile').click()">📥 Import</button>
+            <button class="secondary" onclick="exportData()">📤 Backup</button>
+            <button class="secondary" onclick="toggleTheme()">🌓 Theme</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <aside class="card">
+            <h2 id="formTitle">Neue Versicherung</h2>
+            <p style="font-size: 0.8em; color: var(--text-muted); margin-bottom: 15px;">Für Logo-Automatik die Web-Domain eingeben (z.B. allianz.de)</p>
+            
+            <button class="secondary" style="width: 100%; margin-bottom: 15px;" onclick="triggerScan()">📷 Dokument Scannen (Demo)</button>
+            
+            <form id="insuranceForm">
+                <input type="hidden" id="editId">
+                <div class="form-group">
+                    <label>Name der Versicherung *</label>
+                    <input type="text" id="vName" required placeholder="z.B. Privathaftpflicht">
+                </div>
+                <div class="form-group">
+                    <label>Web-Domain (für Logo)</label>
+                    <input type="text" id="vDomain" placeholder="z.B. huk.de">
+                </div>
+                <div class="form-group">
+                    <label>Startdatum *</label>
+                    <input type="date" id="vStart" required>
+                </div>
+                <div class="form-group">
+                    <label>Vertragslaufzeit (in Monaten) *</label>
+                    <input type="number" id="vDuration" required value="12">
+                </div>
+                <div class="form-group">
+                    <label>Kündigungsfrist (in Monaten) *</label>
+                    <input type="number" id="vNotice" required value="3">
+                </div>
+                <div class="form-group">
+                    <label>Umfang / Notizen</label>
+                    <textarea id="vScope" rows="3" placeholder="Deckungssumme 50 Mio. €, etc."></textarea>
+                </div>
+                <button type="submit" style="width: 100%;" id="submitBtn">Speichern</button>
+                <button type="button" class="secondary hidden" style="width: 100%; margin-top: 10px;" id="cancelEditBtn" onclick="resetForm()">Abbrechen</button>
+            </form>
+        </aside>
+
+        <main>
+            <div class="grid-cards" id="insuranceList">
+                </div>
+        </main>
+    </div>
+
+    <script>
+        let insurances = JSON.parse(localStorage.getItem('insurances')) || [];
+        const form = document.getElementById('insuranceForm');
+        
+        // Init
+        renderList();
+        
+        // Theme Management
+        function toggleTheme() {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', next);
+        }
+
+        // Dummy Scan Function
+        function triggerScan() {
+            alert("Hinweis: Eine echte OCR-Dokumentenerkennung direkt im Browser ist fehleranfällig. Für eine automatische Erkennung von Laufzeiten bräuchtest du ein Backend mit einer KI-API (wie z.B. OpenAI). Aktuell bitte Daten manuell aus dem Vertrag ablesen!");
+        }
+
+        // Datumsberechnung für Kündigung
+        function calculateCancelDate(start, durationMonths, noticeMonths) {
+            let startDate = new Date(start);
+            // Vertragsende berechnen
+            let endDate = new Date(startDate.setMonth(startDate.getMonth() + parseInt(durationMonths)));
+            // Letzter Kündigungstag
+            let cancelDate = new Date(endDate.setMonth(endDate.getMonth() - parseInt(noticeMonths)));
+            // Wenn der Kündigungstag in der Vergangenheit liegt, für das nächste Jahr berechnen
+            const today = new Date();
+            while (cancelDate < today) {
+               endDate = new Date(endDate.setMonth(endDate.getMonth() + 12));
+               cancelDate = new Date(endDate.setMonth(endDate.getMonth() - parseInt(noticeMonths)));
+            }
+            return cancelDate;
+        }
+
+        // Kalender-Link generieren (Google Calendar)
+        function getCalendarLink(name, cancelDate) {
+            const d = cancelDate;
+            const dateStr = d.toISOString().replace(/-|:|\.\d\d\d/g,"").substring(0, 8) + "T080000Z"; 
+            const title = encodeURIComponent("Kündigungsfrist: " + name);
+            const details = encodeURIComponent("Letzter Tag, um diese Versicherung fristgerecht zu kündigen.");
+            return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dateStr}/${dateStr}&details=${details}`;
+        }
+
+        // Formular-Handling
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const editId = document.getElementById('editId').value;
+            
+            const newEntry = {
+                id: editId ? parseInt(editId) : Date.now(),
+                name: document.getElementById('vName').value,
+                domain: document.getElementById('vDomain').value,
+                start: document.getElementById('vStart').value,
+                duration: document.getElementById('vDuration').value,
+                notice: document.getElementById('vNotice').value,
+                scope: document.getElementById('vScope').value,
+            };
+
+            if (editId) {
+                insurances = insurances.map(i => i.id === newEntry.id ? newEntry : i);
+            } else {
+                insurances.push(newEntry);
+            }
+
+            saveData();
+            resetForm();
+            renderList();
+        });
+
+        function editEntry(id) {
+            const entry = insurances.find(i => i.id === id);
+            document.getElementById('editId').value = entry.id;
+            document.getElementById('vName').value = entry.name;
+            document.getElementById('vDomain').value = entry.domain;
+            document.getElementById('vStart').value = entry.start;
+            document.getElementById('vDuration').value = entry.duration;
+            document.getElementById('vNotice').value = entry.notice;
+            document.getElementById('vScope').value = entry.scope;
+            
+            document.getElementById('formTitle').innerText = "Versicherung bearbeiten";
+            document.getElementById('submitBtn').innerText = "Aktualisieren";
+            document.getElementById('cancelEditBtn').classList.remove('hidden');
+        }
+
+        function deleteEntry(id) {
+            if(confirm("Versicherung wirklich löschen?")) {
+                insurances = insurances.filter(i => i.id !== id);
+                saveData();
+                renderList();
+            }
+        }
+
+        function resetForm() {
+            form.reset();
+            document.getElementById('editId').value = "";
+            document.getElementById('formTitle').innerText = "Neue Versicherung";
+            document.getElementById('submitBtn').innerText = "Speichern";
+            document.getElementById('cancelEditBtn').classList.add('hidden');
+        }
+
+        // Render Liste
+        function renderList() {
+            const list = document.getElementById('insuranceList');
+            list.innerHTML = '';
+
+            insurances.forEach(ins => {
+                const cancelDate = calculateCancelDate(ins.start, ins.duration, ins.notice);
+                const cancelDateStr = cancelDate.toLocaleDateString('de-DE');
+                const logoUrl = ins.domain ? `https://logo.clearbit.com/${ins.domain.trim()}` : '';
+                const calLink = getCalendarLink(ins.name, cancelDate);
+
+                const div = document.createElement('div');
+                div.className = 'insurance-item';
+                div.innerHTML = `
+                    <div class="insurance-header">
+                        ${logoUrl ? `<img src="${logoUrl}" class="insurance-logo" onerror="this.style.display='none'">` : '<div class="insurance-logo" style="background:#374151"></div>'}
+                        <h3>${ins.name}</h3>
+                    </div>
+                    <div class="insurance-details">
+                        <p><strong>Start:</strong> ${new Date(ins.start).toLocaleDateString('de-DE')}</p>
+                        <p><strong>Vertragsdauer:</strong> ${ins.duration} Monate</p>
+                        <p><strong>Kündigungsfrist:</strong> ${ins.notice} Monate</p>
+                        <p style="color: var(--danger); font-weight: bold; margin-top: 10px;">🚨 Kündigen bis: ${cancelDateStr}</p>
+                        <p style="margin-top: 10px; color: var(--text-muted); font-size: 0.85em;">${ins.scope}</p>
+                    </div>
+                    <div class="insurance-actions">
+                        <a href="${calLink}" target="_blank" style="text-decoration:none;">
+                            <button style="background-color: #10b981;">📅 Kalender</button>
+                        </a>
+                        <button class="secondary" onclick="editEntry(${ins.id})">✏️</button>
+                        <button class="danger" onclick="deleteEntry(${ins.id})">🗑️</button>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        // Backup & Import
+        function saveData() {
+            localStorage.setItem('insurances', JSON.stringify(insurances));
+        }
+
+        function exportData() {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(insurances, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href",     dataStr);
+            downloadAnchorNode.setAttribute("download", "versicherungs_backup.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        document.getElementById('importFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if(Array.isArray(imported)) {
+                        insurances = imported;
+                        saveData();
+                        renderList();
+                        alert("Backup erfolgreich importiert!");
+                    }
+                } catch (err) {
+                    alert("Fehler beim Lesen der Datei. Ist es ein gültiges Backup?");
+                }
+            };
+            reader.readAsText(file);
+        });
+    </script>
+</body>
+</html>
