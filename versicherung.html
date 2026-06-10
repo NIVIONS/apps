@@ -53,6 +53,7 @@
         .insurance-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; }
         .insurance-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
         
+        .insurance-logo-img { width: 48px; height: 48px; border-radius: 10px; object-fit: contain; background: white; padding: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); flex-shrink: 0; }
         .css-logo { width: 48px; height: 48px; border-radius: 10px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 1.2em; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         
         .insurance-details { flex-grow: 1; }
@@ -65,7 +66,6 @@
 
         .insurance-actions { margin-top: auto; display: flex; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--border); padding-top: 15px; }
         
-        /* Modal Styles */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); display: flex; justify-content: center; align-items: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s; padding: 20px; backdrop-filter: blur(3px); }
         .modal-overlay.active { opacity: 1; pointer-events: all; }
         .modal-content { background: var(--card-bg); padding: 30px; border-radius: 12px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; border: 1px solid var(--border); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); }
@@ -73,7 +73,6 @@
         .close-btn { background: none; border: none; color: var(--text-muted); font-size: 1.5em; cursor: pointer; padding: 0; }
         .close-btn:hover { color: var(--danger); background: none; }
 
-        /* Form Styles */
         .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; font-size: 0.9em; color: var(--text-muted); }
         input, textarea, select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border); background-color: var(--bg-color); color: var(--text-main); font-size: 1em; }
@@ -125,7 +124,7 @@
                 <input type="hidden" id="vTextColor" value="#ffffff">
 
                 <div class="form-group">
-                    <label>Schnellauswahl (füllt Daten automatisch)</label>
+                    <label>Schnellauswahl (füllt alle Daten inkl. Logo automatisch)</label>
                     <select id="presetSelect" onchange="applyPreset()">
                         <option value="">-- Eigene Eingabe --</option>
                         <option value="allianz">Allianz</option>
@@ -144,7 +143,12 @@
 
                 <div class="form-group">
                     <label>Art / Name der Versicherung *</label>
-                    <input type="text" id="vName" required placeholder="z.B. Privathaftpflicht (HUK)">
+                    <input type="text" id="vName" required placeholder="z.B. Privathaftpflicht">
+                </div>
+
+                <div class="form-group">
+                    <label>Web-Domain (für das echte Logo)</label>
+                    <input type="text" id="vDomain" placeholder="z.B. huk.de">
                 </div>
 
                 <div class="form-group">
@@ -188,42 +192,33 @@
             </form>
         </div>
     </div>
-
     <script>
-        // Datenbank gängiger Versicherungen
         const insurancePresets = {
-            "allianz": { name: "Allianz", phone: "0800 11223344", email: "info@allianz.de", color: "#003781", text: "#ffffff" },
-            "aok": { name: "AOK", phone: "0800 2655000", email: "info@aok.de", color: "#00643a", text: "#ffffff" },
-            "axa": { name: "AXA", phone: "0800 3203205", email: "service@axa.de", color: "#00008f", text: "#ffffff" },
-            "barmer": { name: "BARMER", phone: "0800 3331010", email: "service@barmer.de", color: "#006450", text: "#ffffff" },
-            "cosmos": { name: "CosmosDirekt", phone: "0681 9666666", email: "info@cosmosdirekt.de", color: "#003366", text: "#ffffff" },
-            "devk": { name: "DEVK", phone: "0800 4757475", email: "info@devk.de", color: "#006837", text: "#ffffff" },
-            "ergo": { name: "ERGO", phone: "0800 3746000", email: "info@ergo.de", color: "#e3000f", text: "#ffffff" },
-            "generali": { name: "Generali", phone: "089 51210", email: "service@generali.de", color: "#c81e1e", text: "#ffffff" },
-            "huk": { name: "HUK-COBURG", phone: "0800 2153153", email: "info@huk-coburg.de", color: "#ffe600", text: "#000000" },
-            "ruv": { name: "R+V Versicherung", phone: "0800 5331111", email: "ruv@ruv.de", color: "#004b7e", text: "#ffffff" },
-            "tk": { name: "Techniker Krankenkasse", phone: "0800 2858585", email: "service@tk.de", color: "#008a95", text: "#ffffff" }
+            "allianz": { name: "Allianz", domain: "allianz.de", phone: "0800 11223344", email: "info@allianz.de", color: "#003781", text: "#ffffff" },
+            "aok": { name: "AOK", domain: "aok.de", phone: "0800 2655000", email: "info@aok.de", color: "#00643a", text: "#ffffff" },
+            "axa": { name: "AXA", domain: "axa.de", phone: "0800 3203205", email: "service@axa.de", color: "#00008f", text: "#ffffff" },
+            "barmer": { name: "BARMER", domain: "barmer.de", phone: "0800 3331010", email: "service@barmer.de", color: "#006450", text: "#ffffff" },
+            "cosmos": { name: "CosmosDirekt", domain: "cosmosdirekt.de", phone: "0681 9666666", email: "info@cosmosdirekt.de", color: "#003366", text: "#ffffff" },
+            "devk": { name: "DEVK", domain: "devk.de", phone: "0800 4757475", email: "info@devk.de", color: "#006837", text: "#ffffff" },
+            "ergo": { name: "ERGO", domain: "ergo.de", phone: "0800 3746000", email: "info@ergo.de", color: "#e3000f", text: "#ffffff" },
+            "generali": { name: "Generali", domain: "generali.de", phone: "089 51210", email: "service@generali.de", color: "#c81e1e", text: "#ffffff" },
+            "huk": { name: "HUK-COBURG", domain: "huk.de", phone: "0800 2153153", email: "info@huk-coburg.de", color: "#ffe600", text: "#000000" },
+            "ruv": { name: "R+V Versicherung", domain: "ruv.de", phone: "0800 5331111", email: "ruv@ruv.de", color: "#004b7e", text: "#ffffff" },
+            "tk": { name: "Techniker Krankenkasse", domain: "tk.de", phone: "0800 2858585", email: "service@tk.de", color: "#008a95", text: "#ffffff" }
         };
 
         let insurances = [];
 
-        // Robuster Start: Fehler abfangen, falls der Speicher kaputt ist
         try {
             const saved = localStorage.getItem('insurances');
-            if (saved) {
-                insurances = JSON.parse(saved);
-            }
+            if (saved) { insurances = JSON.parse(saved); }
         } catch (e) {
-            console.error("Fehler beim Laden der Speicherdaten:", e);
+            console.error("Fehler beim Laden:", e);
             insurances = [];
         }
 
-        // Init
-        window.onload = () => {
-            renderList();
-        };
+        window.onload = () => { renderList(); };
 
-        // Modal & Form Handling
         window.openModal = function() {
             document.getElementById('formModal').classList.add('active');
             document.body.style.overflow = 'hidden';
@@ -241,11 +236,13 @@
                 const data = insurancePresets[presetKey];
                 const currentName = document.getElementById('vName').value;
                 document.getElementById('vName').value = currentName ? currentName : data.name;
+                document.getElementById('vDomain').value = data.domain;
                 document.getElementById('vPhone').value = data.phone;
                 document.getElementById('vEmail').value = data.email;
                 document.getElementById('vColor').value = data.color;
                 document.getElementById('vTextColor').value = data.text;
             } else {
+                document.getElementById('vDomain').value = "";
                 document.getElementById('vColor').value = "#3b82f6";
                 document.getElementById('vTextColor').value = "#ffffff";
             }
@@ -258,9 +255,7 @@
             html.setAttribute('data-theme', next);
         };
 
-        function getInitials(name) {
-            return name.substring(0, 2).toUpperCase();
-        }
+        function getInitials(name) { return name.substring(0, 2).toUpperCase(); }
 
         function calculateCancelDate(start, durationMonths, noticeMonths) {
             let startDate = new Date(start);
@@ -289,6 +284,7 @@
             const newEntry = {
                 id: editId ? parseInt(editId) : Date.now(),
                 name: document.getElementById('vName').value,
+                domain: document.getElementById('vDomain').value,
                 number: document.getElementById('vNumber').value,
                 phone: document.getElementById('vPhone').value,
                 email: document.getElementById('vEmail').value,
@@ -302,9 +298,7 @@
 
             if (editId) {
                 insurances = insurances.map(i => i.id === newEntry.id ? newEntry : i);
-            } else {
-                insurances.push(newEntry);
-            }
+            } else { insurances.push(newEntry); }
 
             saveData();
             closeModal();
@@ -315,6 +309,7 @@
             const entry = insurances.find(i => i.id === id);
             document.getElementById('editId').value = entry.id;
             document.getElementById('vName').value = entry.name;
+            document.getElementById('vDomain').value = entry.domain || '';
             document.getElementById('vNumber').value = entry.number || '';
             document.getElementById('vPhone').value = entry.phone || '';
             document.getElementById('vEmail').value = entry.email || '';
@@ -328,7 +323,6 @@
             document.getElementById('presetSelect').value = "";
             document.getElementById('formTitle').innerText = "Versicherung bearbeiten";
             document.getElementById('submitBtn').innerHTML = "💾 Aktualisieren";
-            
             openModal();
         };
 
@@ -343,6 +337,7 @@
         function resetForm() {
             document.getElementById('insuranceForm').reset();
             document.getElementById('editId').value = "";
+            document.getElementById('vDomain').value = "";
             document.getElementById('vColor').value = "#3b82f6";
             document.getElementById('vTextColor').value = "#ffffff";
             document.getElementById('formTitle').innerText = "Neue Versicherung";
@@ -366,11 +361,21 @@
                 const cancelDateStr = cancelDate.toLocaleDateString('de-DE');
                 const calLink = getCalendarLink(ins.name, cancelDate);
                 const initials = getInitials(ins.name);
-
+                
                 const bgColor = ins.color || '#3b82f6';
                 const txtColor = ins.textColor || '#ffffff';
-                const vNummerHtml = ins.number ? `<div class="v-nummer">Nr: ${ins.number}</div>` : '';
                 
+                let logoHtml = '';
+                if (ins.domain) {
+                    logoHtml = `
+                        <img src="https://logo.clearbit.com/${ins.domain}" class="insurance-logo-img" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <div class="css-logo" style="background-color: ${bgColor}; color: ${txtColor}; display: none;">${initials}</div>
+                    `;
+                } else {
+                    logoHtml = `<div class="css-logo" style="background-color: ${bgColor}; color: ${txtColor};">${initials}</div>`;
+                }
+
+                const vNummerHtml = ins.number ? `<div class="v-nummer">Nr: ${ins.number}</div>` : '';
                 const phoneHtml = ins.phone ? `<a href="tel:${ins.phone}">📞 Anrufen</a>` : '';
                 const emailHtml = ins.email ? `<a href="mailto:${ins.email}">✉️ E-Mail</a>` : '';
                 const contactsHtml = (ins.phone || ins.email) ? `<div class="contact-links">${phoneHtml}${emailHtml}</div>` : '';
@@ -379,7 +384,7 @@
                 div.className = 'insurance-item';
                 div.innerHTML = `
                     <div class="insurance-header">
-                        <div class="css-logo" style="background-color: ${bgColor}; color: ${txtColor};">${initials}</div>
+                        ${logoHtml}
                         <h3 style="flex-grow: 1;">${ins.name}</h3>
                     </div>
                     <div class="insurance-details">
@@ -404,16 +409,10 @@
             });
         }
 
-        // Backup & Import
-        window.saveData = function() {
-            localStorage.setItem('insurances', JSON.stringify(insurances));
-        };
+        window.saveData = function() { localStorage.setItem('insurances', JSON.stringify(insurances)); };
 
         window.exportData = function() {
-            if(insurances.length === 0) {
-                alert("Keine Daten zum Exportieren vorhanden.");
-                return;
-            }
+            if(insurances.length === 0) { alert("Keine Daten zum Exportieren vorhanden."); return; }
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(insurances, null, 2));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href", dataStr);
@@ -436,9 +435,7 @@
                         renderList();
                         alert("Backup erfolgreich importiert!");
                     }
-                } catch (err) {
-                    alert("Fehler beim Lesen der Datei. Ist es ein gültiges Backup?");
-                }
+                } catch (err) { alert("Fehler beim Lesen der Datei. Ist es ein gültiges Backup?"); }
             };
             reader.readAsText(file);
             e.target.value = '';
