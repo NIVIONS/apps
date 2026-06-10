@@ -108,12 +108,10 @@
                 <p style="margin-top: 10px;">Klicke oben auf "+ Hinzufügen", um deinen ersten Vertrag anzulegen.</p>
             </div>
             <div class="grid-cards" id="insuranceList">
-                <!-- Einträge werden hier generiert -->
-            </div>
+                </div>
         </main>
     </div>
 
-    <!-- Modal für Formular -->
     <div class="modal-overlay" id="formModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -207,30 +205,40 @@
             "tk": { name: "Techniker Krankenkasse", phone: "0800 2858585", email: "service@tk.de", color: "#008a95", text: "#ffffff" }
         };
 
-        let insurances = JSON.parse(localStorage.getItem('insurances')) || [];
-        const form = document.getElementById('insuranceForm');
-        const modal = document.getElementById('formModal');
-        
+        let insurances = [];
+
+        // Robuster Start: Fehler abfangen, falls der Speicher kaputt ist
+        try {
+            const saved = localStorage.getItem('insurances');
+            if (saved) {
+                insurances = JSON.parse(saved);
+            }
+        } catch (e) {
+            console.error("Fehler beim Laden der Speicherdaten:", e);
+            insurances = [];
+        }
+
         // Init
-        renderList();
-        
+        window.onload = () => {
+            renderList();
+        };
+
         // Modal & Form Handling
-        function openModal() {
-            modal.classList.add('active');
-            document.body.style.overflow = 'hidden'; // Verhindert Scrollen im Hintergrund
-        }
+        window.openModal = function() {
+            document.getElementById('formModal').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        };
 
-        function closeModal() {
-            modal.classList.remove('active');
+        window.closeModal = function() {
+            document.getElementById('formModal').classList.remove('active');
             document.body.style.overflow = 'auto';
-            setTimeout(resetForm, 300); // Warten bis Animation fertig ist
-        }
+            setTimeout(resetForm, 300);
+        };
 
-        function applyPreset() {
+        window.applyPreset = function() {
             const presetKey = document.getElementById('presetSelect').value;
             if (presetKey && insurancePresets[presetKey]) {
                 const data = insurancePresets[presetKey];
-                // Füllt die Felder auf, behält aber existierenden Text bei Name, falls man "Haftpflicht" davor schreiben will
                 const currentName = document.getElementById('vName').value;
                 document.getElementById('vName').value = currentName ? currentName : data.name;
                 document.getElementById('vPhone').value = data.phone;
@@ -238,19 +246,18 @@
                 document.getElementById('vColor').value = data.color;
                 document.getElementById('vTextColor').value = data.text;
             } else {
-                document.getElementById('vColor').value = "#3b82f6"; // Default Blue
+                document.getElementById('vColor').value = "#3b82f6";
                 document.getElementById('vTextColor').value = "#ffffff";
             }
-        }
-        
-        function toggleTheme() {
+        };
+
+        window.toggleTheme = function() {
             const html = document.documentElement;
             const current = html.getAttribute('data-theme');
             const next = current === 'dark' ? 'light' : 'dark';
             html.setAttribute('data-theme', next);
-        }
+        };
 
-        // Generiert Initiale für das Logo (z.B. "HUK-COBURG" -> "HU")
         function getInitials(name) {
             return name.substring(0, 2).toUpperCase();
         }
@@ -275,7 +282,7 @@
             return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dateStr}/${dateStr}&details=${details}`;
         }
 
-        form.addEventListener('submit', (e) => {
+        document.getElementById('insuranceForm').addEventListener('submit', (e) => {
             e.preventDefault();
             const editId = document.getElementById('editId').value;
             
@@ -304,7 +311,7 @@
             renderList();
         });
 
-        function editEntry(id) {
+        window.editEntry = function(id) {
             const entry = insurances.find(i => i.id === id);
             document.getElementById('editId').value = entry.id;
             document.getElementById('vName').value = entry.name;
@@ -318,25 +325,23 @@
             document.getElementById('vNotice').value = entry.notice;
             document.getElementById('vScope').value = entry.scope;
             
-            // Preset Dropdown resetten, da wir bearbeiten
             document.getElementById('presetSelect').value = "";
-            
             document.getElementById('formTitle').innerText = "Versicherung bearbeiten";
             document.getElementById('submitBtn').innerHTML = "💾 Aktualisieren";
             
             openModal();
-        }
+        };
 
-        function deleteEntry(id) {
+        window.deleteEntry = function(id) {
             if(confirm("Diese Versicherung wirklich löschen?")) {
                 insurances = insurances.filter(i => i.id !== id);
                 saveData();
                 renderList();
             }
-        }
+        };
 
         function resetForm() {
-            form.reset();
+            document.getElementById('insuranceForm').reset();
             document.getElementById('editId').value = "";
             document.getElementById('vColor').value = "#3b82f6";
             document.getElementById('vTextColor').value = "#ffffff";
@@ -362,7 +367,6 @@
                 const calLink = getCalendarLink(ins.name, cancelDate);
                 const initials = getInitials(ins.name);
 
-                // Sicherstellen, dass alte Einträge ohne Farbe eine Fallback-Farbe haben
                 const bgColor = ins.color || '#3b82f6';
                 const txtColor = ins.textColor || '#ffffff';
                 const vNummerHtml = ins.number ? `<div class="v-nummer">Nr: ${ins.number}</div>` : '';
@@ -376,4 +380,69 @@
                 div.innerHTML = `
                     <div class="insurance-header">
                         <div class="css-logo" style="background-color: ${bgColor}; color: ${txtColor};">${initials}</div>
-                      
+                        <h3 style="flex-grow: 1;">${ins.name}</h3>
+                    </div>
+                    <div class="insurance-details">
+                        ${vNummerHtml}
+                        ${contactsHtml}
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 10px; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 6px;">
+                            <p><strong>Start:</strong><br>${new Date(ins.start).toLocaleDateString('de-DE')}</p>
+                            <p><strong>Laufzeit:</strong><br>${ins.duration} Mon.</p>
+                        </div>
+                        <p style="color: var(--danger); font-weight: bold; font-size: 1.05em;">🚨 Kündigen bis: ${cancelDateStr}</p>
+                        ${ins.scope ? `<p style="margin-top: 10px; color: var(--text-muted); font-size: 0.9em; border-top: 1px dashed var(--border); padding-top: 10px;">📝 ${ins.scope}</p>` : ''}
+                    </div>
+                    <div class="insurance-actions">
+                        <a href="${calLink}" target="_blank" style="text-decoration:none; flex-grow: 1;">
+                            <button style="width: 100%; background-color: var(--success);">📅 Erinnerung</button>
+                        </a>
+                        <button class="secondary" onclick="editEntry(${ins.id})" title="Bearbeiten">✏️</button>
+                        <button class="danger" onclick="deleteEntry(${ins.id})" title="Löschen">🗑️</button>
+                    </div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        // Backup & Import
+        window.saveData = function() {
+            localStorage.setItem('insurances', JSON.stringify(insurances));
+        };
+
+        window.exportData = function() {
+            if(insurances.length === 0) {
+                alert("Keine Daten zum Exportieren vorhanden.");
+                return;
+            }
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(insurances, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "shieldbase_backup.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        };
+
+        document.getElementById('importFile').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if(Array.isArray(imported)) {
+                        insurances = imported;
+                        window.saveData();
+                        renderList();
+                        alert("Backup erfolgreich importiert!");
+                    }
+                } catch (err) {
+                    alert("Fehler beim Lesen der Datei. Ist es ein gültiges Backup?");
+                }
+            };
+            reader.readAsText(file);
+            e.target.value = '';
+        });
+    </script>
+</body>
+</html>
