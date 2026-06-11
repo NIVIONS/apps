@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Versicherungs-Dashboard</title>
+    <title>Franks Versicherung Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         :root[data-theme="dark"] {
             --bg-color: #121212;
@@ -15,6 +16,7 @@
             --border: #374151;
             --danger: #ef4444;
             --success: #10b981;
+            --pdf-btn: #8b5cf6;
         }
         
         :root[data-theme="light"] {
@@ -27,6 +29,7 @@
             --border: #e5e7eb;
             --danger: #dc2626;
             --success: #059669;
+            --pdf-btn: #7c3aed;
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -45,6 +48,8 @@
         button.secondary:hover { background-color: var(--border); }
         button.add-btn { background-color: var(--success); font-size: 1.1em; padding: 10px 20px; }
         button.add-btn:hover { background-color: #047857; }
+        button.pdf-btn { background-color: var(--pdf-btn); }
+        button.pdf-btn:hover { background-color: #6d28d9; }
 
         .container { max-width: 1200px; margin: 0 auto; }
 
@@ -53,7 +58,7 @@
         .insurance-item { background-color: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; }
         .insurance-header { display: flex; align-items: center; gap: 15px; margin-bottom: 15px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
         
-        .insurance-logo-img { width: 48px; height: 48px; border-radius: 10px; object-fit: contain; background: white; padding: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); flex-shrink: 0; }
+        .insurance-logo-img { width: 48px; height: 48px; border-radius: 10px; object-fit: contain; background: white; padding: 6px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); flex-shrink: 0; }
         .css-logo { width: 48px; height: 48px; border-radius: 10px; display: flex; justify-content: center; align-items: center; font-weight: bold; font-size: 1.2em; flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
         
         .insurance-details { flex-grow: 1; }
@@ -88,14 +93,15 @@
 
     <header>
         <div>
-            <h1>ShieldBase</h1>
-            <p style="color: var(--text-muted); font-size: 0.9em;">Dein Versicherungs-Manager</p>
+            <h1>Franks Versicherung Dashboard</h1>
+            <p style="color: var(--text-muted); font-size: 0.9em;">Alle Verträge auf einen Blick</p>
         </div>
         <div class="header-actions">
             <button class="add-btn" onclick="openModal()">➕ Hinzufügen</button>
             <input type="file" id="importFile" accept=".json" class="hidden">
             <button class="secondary" onclick="document.getElementById('importFile').click()">📥 Import</button>
             <button class="secondary" onclick="exportData()">📤 Backup</button>
+            <button class="pdf-btn" onclick="exportPDF()">📄 PDF Ausgabe</button>
             <button class="secondary" onclick="toggleTheme()">🌓 Theme</button>
         </div>
     </header>
@@ -236,7 +242,7 @@
                 const data = insurancePresets[presetKey];
                 const currentName = document.getElementById('vName').value;
                 document.getElementById('vName').value = currentName ? currentName : data.name;
-                document.getElementById('vDomain').value = data.domain;
+                document.getElementById('vDomain').value = data.domain; 
                 document.getElementById('vPhone').value = data.phone;
                 document.getElementById('vEmail').value = data.email;
                 document.getElementById('vColor').value = data.color;
@@ -367,8 +373,9 @@
                 
                 let logoHtml = '';
                 if (ins.domain) {
+                    // Nutzung der Google Favicon API (wird von Adblockern nicht blockiert)
                     logoHtml = `
-                        <img src="https://logo.clearbit.com/${ins.domain}" class="insurance-logo-img" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                        <img src="https://www.google.com/s2/favicons?domain=${ins.domain}&sz=128" class="insurance-logo-img" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
                         <div class="css-logo" style="background-color: ${bgColor}; color: ${txtColor}; display: none;">${initials}</div>
                     `;
                 } else {
@@ -409,6 +416,48 @@
             });
         }
 
+        // --- PDF EXPORT FUNKTION ---
+        window.exportPDF = function() {
+            if(insurances.length === 0) {
+                alert("Keine Versicherungen zum Exportieren vorhanden.");
+                return;
+            }
+
+            const listClone = document.getElementById('insuranceList').cloneNode(true);
+            
+            const actionButtons = listClone.querySelectorAll('.insurance-actions');
+            actionButtons.forEach(btn => btn.remove());
+            
+            const contactLinks = listClone.querySelectorAll('.contact-links');
+            contactLinks.forEach(link => link.remove());
+
+            const cards = listClone.querySelectorAll('.insurance-item');
+            cards.forEach(card => {
+                card.style.backgroundColor = '#ffffff';
+                card.style.border = '1px solid #ccc';
+                card.style.color = '#000000';
+                card.style.pageBreakInside = 'avoid'; 
+            });
+
+            const wrapper = document.createElement('div');
+            wrapper.style.padding = '20px';
+            wrapper.innerHTML = `
+                <h1 style="text-align: center; margin-bottom: 30px; color: #000; font-family: sans-serif;">Franks Versicherung Dashboard</h1>
+                <p style="text-align: center; margin-bottom: 30px; color: #555; font-family: sans-serif;">Stand: ${new Date().toLocaleDateString('de-DE')}</p>
+            `;
+            wrapper.appendChild(listClone);
+
+            const opt = {
+                margin:       10,
+                filename:     'Franks_Versicherungen.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().set(opt).from(wrapper).save();
+        };
+
         window.saveData = function() { localStorage.setItem('insurances', JSON.stringify(insurances)); };
 
         window.exportData = function() {
@@ -416,7 +465,7 @@
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(insurances, null, 2));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href", dataStr);
-            downloadAnchorNode.setAttribute("download", "shieldbase_backup.json");
+            downloadAnchorNode.setAttribute("download", "Franks_Versicherungen_Backup.json");
             document.body.appendChild(downloadAnchorNode);
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
